@@ -1,0 +1,136 @@
+blueprint:
+  name: Sprach-Erinnerung (Deutsch)
+  description: |
+    Erinnerungen per Sprachbefehl, komplett lokal, für Assist und Voice PE.
+
+    Beispiele:
+    - "Erinnere mich in 45 Sekunden an die Eier"
+    - "Erinnere mich in 1 Stunde und 30 Minuten an die Wäsche"
+    - "Erinnere mich um 14:15 an die Wäsche"
+
+    Die Erinnerung wird standardmässig auf dem Gerät angesagt, das den Befehl
+    gehört hat. Offene Erinnerungen gehen bei einem Neustart von Home Assistant verloren.
+  domain: automation
+  source_url: https://github.com/oxivanisher/oxivanisher-ha-blueprints/blob/main/blueprints/automation/sprach_erinnerung.yaml
+  input:
+    praefix:
+      name: Ansage-Präfix
+      description: >
+        Text vor der Erinnerung, z.B. "Erinnerung:" ergibt "Erinnerung: die Wäsche".
+      default: "Erinnerung:"
+      selector:
+        text:
+    ziel_satelliten:
+      name: Feste Ansage-Geräte (optional)
+      description: |
+        Leer lassen, um auf dem Gerät anzusagen, das den Befehl gehört hat.
+        Sonst wird immer auf diesen Satelliten angesagt.
+      default: []
+      selector:
+        entity:
+          domain: assist_satellite
+          multiple: true
+
+mode: parallel
+max: 20
+
+triggers:
+  - trigger: conversation
+    command:
+      - "Erinnere mich in {dauer} an {sache}"
+    id: dauer
+  - trigger: conversation
+    command:
+      - "Erinnere mich um {uhrzeit} an {sache}"
+    id: uhrzeit
+  - trigger: event
+    event_type: sprach_erinnerung_start
+    id: ausfuehren
+
+variables:
+  praefix: !input praefix
+  ziel_satelliten: !input ziel_satelliten
+
+actions:
+  - choose:
+      # Teil 2: im Hintergrund warten und ansagen
+      - conditions:
+          - condition: trigger
+            id: ausfuehren
+          - condition: template
+            value_template: "{{ trigger.event.data.quelle == this.entity_id }}"
+        sequence:
+          - delay:
+              seconds: "{{ trigger.event.data.sekunden | int }}"
+          - if:
+              - condition: template
+                value_template: "{{ ziel_satelliten | count > 0 }}"
+            then:
+              - action: assist_satellite.announce
+                target:
+                  entity_id: "{{ ziel_satelliten }}"
+                data:
+                  message: "{{ praefix }} {{ trigger.event.data.sache }}"
+            else:
+              - action: assist_satellite.announce
+                target:
+                  device_id: "{{ trigger.event.data.device }}"
+                data:
+                  message: "{{ praefix }} {{ trigger.event.data.sache }}"
+
+      # Teil 1: Sprachbefehl auswerten und sofort antworten
+      - conditions:
+          - condition: trigger
+            id:
+              - dauer
+              - uhrzeit
+        sequence:
+          - variables:
+              sache: "{{ trigger.slots.get('sache', '') | trim(' .!?') }}"
+              sekunden: >
+                {% if trigger.id == 'dauer' %}
+                  {% set woerter = {
+                    'ein': 1, 'eine': 1, 'einer': 1, 'einen': 1, 'zwei': 2, 'drei': 3,
+                    'vier': 4, 'fünf': 5, 'sechs': 6, 'zehn': 10, 'fünfzehn': 15,
+                    'zwanzig': 20, 'dreissig': 30, 'dreißig': 30, 'vierzig': 40,
+                    'halben': 0.5, 'halbe': 0.5, 'viertel': 0.25,
+                    'eineinhalb': 1.5, 'anderthalb': 1.5 } %}
+                  {% set text = trigger.slots.get('dauer', '') | lower | replace(',', '.') %}
+                  {% set ns = namespace(summe=0) %}
+                  {% for zahl, einheit in text | regex_findall('([0-9]+(?:[.][0-9]+)?|[a-zäöüß]+)[ ]*(sek[a-z.]*|min[a-z.]*|std[.]?|stunden?)') %}
+                    {% set n = zahl | float(woerter.get(zahl, 0)) %}
+                    {% set faktor = 1 if einheit.startswith('sek') else (60 if einheit.startswith('min') else 3600) %}
+                    {% set ns.summe = ns.summe + n * faktor %}
+                  {% endfor %}
+                  {{ ns.summe | round(0) | int }}
+                {% else %}
+                  {% set zahlen = trigger.slots.get('uhrzeit', '') | regex_findall('[0-9]+') %}
+                  {% set h = (zahlen[0] | default(99)) | int %}
+                  {% set m = (zahlen[1] | default(0)) | int %}
+                  {% if h < 24 and m < 60 %}
+                    {% set jetzt = now() %}
+                    {% set ziel = jetzt.replace(hour=h, minute=m, second=0, microsecond=0) %}
+                    {% if ziel <= jetzt %}{% set ziel = ziel + timedelta(days=1) %}{% endif %}
+                    {{ (ziel - jetzt).total_seconds() | round(0, 'ceil') | int }}
+                  {% else %}
+                    0
+                  {% endif %}
+                {% endif %}
+          - if:
+              - condition: template
+                value_template: "{{ sekunden | int > 0 and sache | length > 0 }}"
+            then:
+              - event: sprach_erinnerung_start
+                event_data:
+                  quelle: "{{ this.entity_id }}"
+                  device: "{{ trigger.device_id }}"
+                  sekunden: "{{ sekunden }}"
+                  sache: "{{ sache }}"
+              - set_conversation_response: >
+                  {% if trigger.id == 'dauer' %}
+                    Okay, ich erinnere dich in {{ trigger.slots.dauer | trim }} an {{ sache }}.
+                  {% else %}
+                    Okay, ich erinnere dich um {{ (now() + timedelta(seconds=sekunden | int)).strftime('%H:%M') }} Uhr an {{ sache }}.
+                  {% endif %}
+            else:
+              - set_conversation_response: "Das habe ich zeitlich nicht verstanden."
