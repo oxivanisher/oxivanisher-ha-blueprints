@@ -2,6 +2,39 @@
 
 Blueprints for Home Assistant Assist, focused on fully local, German-language voice control with Home Assistant Voice PE devices.
 
+## Importing
+
+There are three ways to get a blueprint into Home Assistant. All of them end up in the same place: a file under `/config/blueprints/`.
+
+### Option 1: Import button
+
+Each blueprint has an import button. It goes through [my.home-assistant.io](https://my.home-assistant.io/), which forwards your browser to your own Home Assistant and opens the import dialog there. This needs:
+
+- The [My Home Assistant](https://www.home-assistant.io/integrations/my/) integration, which is part of `default_config:`. Without `default_config:`, add `my:` to `configuration.yaml` and restart.
+- The address of your Home Assistant saved on my.home-assistant.io (pencil icon on that page), as you type it in your browser, e.g. `https://ha.example.lan:8123`.
+
+If the button opens Home Assistant but no import dialog appears, use option 2 or 3.
+
+### Option 2: Import by URL (recommended if the button does not work)
+
+1. In Home Assistant, go to **Settings → Automations & scenes → Blueprints**.
+2. Click **Import blueprint** (bottom right).
+3. Paste the blueprint's GitHub URL, e.g. `https://github.com/oxivanisher/oxivanisher-ha-blueprints/blob/main/blueprints/automation/sprach_erinnerung.yaml`.
+4. Click **Preview**, then **Import blueprint**.
+
+Home Assistant downloads the file itself, so the Home Assistant host needs outbound internet access to `github.com` (check this if it sits in a restricted VLAN). Because the blueprint has a `source_url`, you can later update it from the blueprint's ⋮ menu → **Re-import blueprint**.
+
+### Option 3: Copy the file
+
+If Home Assistant has no internet access, copy the file yourself:
+
+1. Download the YAML file from this repository.
+2. Put it into your Home Assistant config folder at the same relative path, e.g. `/config/blueprints/automation/oxivanisher/sprach_erinnerung.yaml` (via the File editor or Samba add-on, SSH, or your Docker volume). Create the folders if they do not exist.
+3. Go to **Developer tools → YAML** and click **Automations** under "YAML configuration reloading", or restart Home Assistant.
+4. The blueprint now shows up under **Settings → Automations & scenes → Blueprints**.
+
+Updates work the same way: replace the file and reload.
+
 ## Sprach-Erinnerung (Deutsch)
 
 Voice reminders, like "remind me…" on Alexa, but fully local.
