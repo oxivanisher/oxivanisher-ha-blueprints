@@ -35,6 +35,15 @@ If Home Assistant has no internet access, copy the file yourself:
 
 Updates work the same way: replace the file and reload.
 
+### After importing: create an automation
+
+A blueprint on its own does nothing. Importing only makes it available as a template:
+
+1. Go to **Settings → Automations & scenes → Blueprints**.
+2. Click the blueprint, fill in the inputs, and click **Save**.
+
+Only then are the voice commands active. Updating the blueprint later (re-import or replacing the file) updates every automation created from it.
+
 ## Sprach-Erinnerung (Deutsch)
 
 Voice reminders, like "remind me…" on Alexa, but fully local.
