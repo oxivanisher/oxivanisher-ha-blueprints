@@ -49,6 +49,8 @@ Voice reminders, like "remind me…" on Alexa, but fully local.
 - "Erinnere mich in 1 Stunde und 30 Minuten an die Wäsche"
 - "Erinnere mich um 14:15 an die Wäsche" (also "14.15 Uhr", "14 Uhr 15", "14 Uhr")
 
+"Erinner mich" and "Erinnern mich" (common speech-to-text results for Swiss German) and an optional "bitte" ("Erinnere mich bitte in …") are accepted too.
+
 The assistant confirms right away. When the time is up, the reminder is announced on the device that heard the command, or on fixed devices you choose.
 
 **Inputs**

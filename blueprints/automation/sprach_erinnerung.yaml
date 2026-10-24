@@ -37,11 +37,11 @@ max: 20
 triggers:
   - trigger: conversation
     command:
-      - "Erinnere mich in {dauer} an {sache}"
+      - "(Erinnere|Erinner|Erinnern) mich [bitte] in {dauer} an {sache}"
     id: dauer
   - trigger: conversation
     command:
-      - "Erinnere mich um {uhrzeit} an {sache}"
+      - "(Erinnere|Erinner|Erinnern) mich [bitte] um {uhrzeit} an {sache}"
     id: uhrzeit
   - trigger: event
     event_type: sprach_erinnerung_start
