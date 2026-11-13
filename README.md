@@ -92,6 +92,7 @@ Reads your current audiobook aloud, by voice, and picks up where you left off, e
 - "Lies mir das aktuelle Buch vor" / "Lies mir weiter vor"
 - "Spiel mein Hörbuch" / "Spiel mein Hörbuch weiter"
 - "Hörbuch weiterhören" / "Hörbuch fortsetzen"
+- "Stopp das Hörbuch" / "Hörbuch beenden" / "Hör auf vorzulesen"
 
 **One-time setup: Audiobookshelf API access**
 
@@ -120,7 +121,7 @@ A blueprint cannot call an HTTP API on its own, so you add a `rest_command` to `
 
 The token belongs to one Audiobookshelf user. Use the user whose progress you want to follow.
 
-Playback starts with `enqueue: replace`, so an old Music Assistant queue is replaced. The sleep timer can start this automation through the `hoerbuch_vorlesen` event (see below).
+Playback starts with `enqueue: replace`, so an old Music Assistant queue is replaced. Stopping pauses playback, waits 2 seconds so Music Assistant can report the position to Audiobookshelf, then clears the queue. The book can then continue on another device without an outdated position on the Voice PE. The sleep timer can start this automation through the `hoerbuch_vorlesen` event (see below).
 
 **Which player?** Same as the sleep timer: without fixed players, the blueprint uses the Music Assistant player in the area of the voice device that heard the command.
 

@@ -9,6 +9,10 @@ blueprint:
     - "Lies mir weiter vor"
     - "Spiel mein Hörbuch"
     - "Hörbuch weiterhören"
+    - "Stopp das Hörbuch" / "Hör auf vorzulesen"
+
+    Beim Stoppen wird pausiert und danach die Warteschlange des Players geleert,
+    damit das Buch auf einem anderen Gerät ohne veraltete Position weitergehen kann.
 
     Welches Buch gerade gehört wird, wird direkt bei Audiobookshelf abgefragt
     (/api/me/items-in-progress). So geht es auch dann an der richtigen Stelle weiter,
@@ -46,6 +50,13 @@ triggers:
       - "(Hörbuch|Hörspiel) (weiter|weiterhören|weiterspielen|fortsetzen|abspielen|starten)"
       - "Ich möchte [mein Hörbuch] weiterhören"
     id: sprache
+  - trigger: conversation
+    command:
+      - "(Stopp|Stoppe|Stop|Beende|Beend|Pausiere|Pausier) [bitte] [das|mein] (Hörbuch|Hörspiel|Buch|Audiobuch|Vorlesen)"
+      - "(Hörbuch|Hörspiel|Vorlesen) (stoppen|beenden|pausieren|aus|ausschalten)"
+      - "Hör [bitte] auf (vorzulesen|zu lesen)"
+      - "Nicht mehr vorlesen"
+    id: stopp
   # Wird z.B. vom Hörbuch-Schlaftimer ausgelöst, Daten: player (Liste), device (optional)
   - trigger: event
     event_type: hoerbuch_vorlesen
@@ -79,62 +90,94 @@ actions:
             {% endfor %}
             {% set ma = ns.treffer %}
           {% endif %}
-          {{ ma[:1] }}
+          {{ ma }}
         {% endif %}
 
-  - action: rest_command.abs_hoerbuecher
-    response_variable: antwort
-    continue_on_error: true
+  - choose:
+      # Hörbuch stoppen und Warteschlange leeren
+      - conditions:
+          - condition: trigger
+            id: stopp
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ player | count == 0 }}"
+            then:
+              - set_conversation_response: >
+                  Ich habe keinen Music-Assistant-Player gefunden. Weise den Music-Assistant-Player
+                  dem gleichen Bereich zu wie das Sprachgerät, oder lege feste Player in der Automation fest.
+              - stop: Kein Player gefunden
+          - variables:
+              ziel: >
+                {% set aktiv = player | select('is_state', 'playing') | list %}
+                {{ aktiv if aktiv | count > 0 else player }}
+          - action: media_player.media_pause
+            target:
+              entity_id: "{{ ziel }}"
+            continue_on_error: true
+          - set_conversation_response: Okay, Hörbuch gestoppt.
+          # Kurz warten, damit Music Assistant die Position an Audiobookshelf meldet
+          - delay:
+              seconds: 2
+          - action: media_player.clear_playlist
+            target:
+              entity_id: "{{ ziel }}"
+            continue_on_error: true
+    # Hörbuch starten
+    default:
+      - action: rest_command.abs_hoerbuecher
+        response_variable: antwort
+        continue_on_error: true
 
-  - variables:
-      buch: >
-        {% set inhalt = antwort.content if antwort is defined and antwort.status | default(0) == 200 else {} %} {% set buecher = inhalt.libraryItems | default([]) | selectattr('mediaType', 'eq', 'book') | list %} {% if buecher | count > 0 and buecher | selectattr('progressLastUpdate', 'defined') | list | count == buecher | count %}
-          {% set buecher = buecher | sort(attribute='progressLastUpdate', reverse=true) %}
-        {% endif %} {{ buecher[0].media.metadata.title | default('') if buecher | count > 0 else '' }}
-      fehler: >
-        {% if player | count == 0 %}
-          Ich habe keinen Music-Assistant-Player gefunden. Weise den Music-Assistant-Player
-          dem gleichen Bereich zu wie das Sprachgerät, oder lege feste Player in der Automation fest.
-        {% elif antwort is not defined or antwort.status | default(0) != 200 %}
-          Audiobookshelf hat nicht geantwortet.
-        {% elif buch | length == 0 %}
-          Du hast gerade kein Hörbuch angefangen.
-        {% endif %}
+      - variables:
+          buch: >
+            {% set inhalt = antwort.content if antwort is defined and antwort.status | default(0) == 200 else {} %} {% set buecher = inhalt.libraryItems | default([]) | selectattr('mediaType', 'eq', 'book') | list %} {% if buecher | count > 0 and buecher | selectattr('progressLastUpdate', 'defined') | list | count == buecher | count %}
+              {% set buecher = buecher | sort(attribute='progressLastUpdate', reverse=true) %}
+            {% endif %} {{ buecher[0].media.metadata.title | default('') if buecher | count > 0 else '' }}
+          fehler: >
+            {% if player | count == 0 %}
+              Ich habe keinen Music-Assistant-Player gefunden. Weise den Music-Assistant-Player
+              dem gleichen Bereich zu wie das Sprachgerät, oder lege feste Player in der Automation fest.
+            {% elif antwort is not defined or antwort.status | default(0) != 200 %}
+              Audiobookshelf hat nicht geantwortet.
+            {% elif buch | length == 0 %}
+              Du hast gerade kein Hörbuch angefangen.
+            {% endif %}
 
-  - if:
-      - condition: template
-        value_template: "{{ fehler | trim | length > 0 }}"
-    then:
+      - if:
+          - condition: template
+            value_template: "{{ fehler | trim | length > 0 }}"
+        then:
+          - if:
+              - condition: trigger
+                id: sprache
+            then:
+              - set_conversation_response: "{{ fehler | trim }}"
+            else:
+              # Über das Ereignis gestartet: Fehler auf dem Sprachgerät ansagen
+              - if:
+                  - condition: template
+                    value_template: "{{ geraet | length > 0 }}"
+                then:
+                  - action: assist_satellite.announce
+                    target:
+                      device_id: "{{ geraet }}"
+                    data:
+                      message: "{{ fehler | trim }}"
+                    continue_on_error: true
+          - stop: Hörbuch konnte nicht gestartet werden
+
       - if:
           - condition: trigger
             id: sprache
         then:
-          - set_conversation_response: "{{ fehler | trim }}"
-        else:
-          # Über das Ereignis gestartet: Fehler auf dem Sprachgerät ansagen
-          - if:
-              - condition: template
-                value_template: "{{ geraet | length > 0 }}"
-            then:
-              - action: assist_satellite.announce
-                target:
-                  device_id: "{{ geraet }}"
-                data:
-                  message: "{{ fehler | trim }}"
-                continue_on_error: true
-      - stop: Hörbuch konnte nicht gestartet werden
-
-  - if:
-      - condition: trigger
-        id: sprache
-    then:
-      - set_conversation_response: "Okay, {{ buch }}."
-  # "replace" ersetzt eine alte Warteschlange, Music Assistant setzt an der
-  # in Audiobookshelf gespeicherten Stelle fort.
-  - action: music_assistant.play_media
-    target:
-      entity_id: "{{ player }}"
-    data:
-      media_type: audiobook
-      media_id: "{{ buch }}"
-      enqueue: replace
+          - set_conversation_response: "Okay, {{ buch }}."
+      # "replace" ersetzt eine alte Warteschlange, Music Assistant setzt an der
+      # in Audiobookshelf gespeicherten Stelle fort.
+      - action: music_assistant.play_media
+        target:
+          entity_id: "{{ player if feste_player | count > 0 or trigger.id == 'ereignis' else player[:1] }}"
+        data:
+          media_type: audiobook
+          media_id: "{{ buch }}"
+          enqueue: replace
