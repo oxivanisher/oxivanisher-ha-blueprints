@@ -64,9 +64,22 @@ actions:
         {% elif feste_player | count > 0 %}
           {{ feste_player }}
         {% else %}
+          {% set ma_alle = integration_entities('music_assistant') | select('match', 'media_player[.]') | list %}
           {% set bereich = area_id(geraet) if geraet else none %}
-          {% set im_raum = (area_entities(bereich) if bereich else []) | select('match', 'media_player[.]') | list %}
-          {{ (im_raum | select('in', integration_entities('music_assistant')) | list)[:1] }}
+          {% set ma = ma_alle | select('in', area_entities(bereich) if bereich else []) | list %}
+          {% if ma | count == 0 and geraet %}
+            {# Music-Assistant-Player ohne Bereich: über den Namen des Sprachgeräts suchen #}
+            {% set namen = ([device_attr(geraet, 'name_by_user'), device_attr(geraet, 'name')]
+                 + device_entities(geraet) | select('match', 'media_player[.]') | map('state_attr', 'friendly_name') | list)
+                 | select | map('lower') | list %}
+            {% set ns = namespace(treffer=[]) %}
+            {% for e in ma_alle if (state_attr(e, 'group_members') or []) | count <= 1 %}
+              {% set n = (state_attr(e, 'friendly_name') or '') | lower %}
+              {% if namen | select('in', n) | list | count > 0 %}{% set ns.treffer = ns.treffer + [e] %}{% endif %}
+            {% endfor %}
+            {% set ma = ns.treffer %}
+          {% endif %}
+          {{ ma[:1] }}
         {% endif %}
 
   - action: rest_command.abs_hoerbuecher
@@ -80,8 +93,8 @@ actions:
         {% endif %} {{ buecher[0].media.metadata.title | default('') if buecher | count > 0 else '' }}
       fehler: >
         {% if player | count == 0 %}
-          Ich habe keinen Music-Assistant-Player gefunden. Ordne das Sprachgerät einem
-          Bereich mit einem Player zu oder lege feste Player in der Automation fest.
+          Ich habe keinen Music-Assistant-Player gefunden. Weise den Music-Assistant-Player
+          dem gleichen Bereich zu wie das Sprachgerät, oder lege feste Player in der Automation fest.
         {% elif antwort is not defined or antwort.status | default(0) != 200 %}
           Audiobookshelf hat nicht geantwortet.
         {% elif buch | length == 0 %}

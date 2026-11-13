@@ -237,9 +237,23 @@ actions:
                 {% if feste_player | count > 0 %}
                   {{ feste_player }}
                 {% else %}
-                  {% set bereich = area_id(trigger.device_id) if trigger.device_id else none %}
+                  {% set geraet = trigger.device_id or '' %}
+                  {% set ma_alle = integration_entities('music_assistant') | select('match', 'media_player[.]') | list %}
+                  {% set bereich = area_id(geraet) if geraet else none %}
                   {% set im_raum = (area_entities(bereich) if bereich else []) | select('match', 'media_player[.]') | list %}
-                  {% set ma = im_raum | select('in', integration_entities('music_assistant')) | list %}
+                  {% set ma = ma_alle | select('in', im_raum) | list %}
+                  {% if ma | count == 0 and geraet %}
+                    {# Music-Assistant-Player ohne Bereich: über den Namen des Sprachgeräts suchen #}
+                    {% set namen = ([device_attr(geraet, 'name_by_user'), device_attr(geraet, 'name')]
+                         + device_entities(geraet) | select('match', 'media_player[.]') | map('state_attr', 'friendly_name') | list)
+                         | select | map('lower') | list %}
+                    {% set ns = namespace(treffer=[]) %}
+                    {% for e in ma_alle if (state_attr(e, 'group_members') or []) | count <= 1 %}
+                      {% set n = (state_attr(e, 'friendly_name') or '') | lower %}
+                      {% if namen | select('in', n) | list | count > 0 %}{% set ns.treffer = ns.treffer + [e] %}{% endif %}
+                    {% endfor %}
+                    {% set ma = ns.treffer %}
+                  {% endif %}
                   {% set kandidaten = ma if ma | count > 0 else im_raum %}
                   {% set spielend = kandidaten | select('is_state', 'playing') | list %}
                   {{ spielend if spielend | count > 0 else kandidaten[:1] }}

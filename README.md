@@ -124,6 +124,8 @@ Playback starts with `enqueue: replace`, so an old Music Assistant queue is repl
 
 **Which player?** Same as the sleep timer: without fixed players, the blueprint uses the Music Assistant player in the area of the voice device that heard the command.
 
+Music Assistant creates its own device for each player, separate from the Voice PE. That device usually has no area. Assign it to the same area as the Voice PE under **Settings → Devices & services → Music Assistant**. If no Music Assistant player is in the area, the blueprint falls back to one whose name contains the Voice PE's name. Groups are skipped in this fallback.
+
 **Inputs**
 
 | Input        | Default | Description                                                                 |
@@ -152,7 +154,7 @@ A voice sleep timer for audiobooks (e.g. Audiobookshelf via Music Assistant). It
 
 "Sleeptimer", "Sleep Timer" and "Einschlaftimer" also work. A new timer replaces the one already running for the same player.
 
-**Which player?** If you leave "Feste Player" empty, the blueprint takes the media players in the same area as the voice device that heard the command. Music Assistant players are preferred, and among those the ones currently playing. So assign each Voice PE and its Music Assistant player to the same area.
+**Which player?** If you leave "Feste Player" empty, the blueprint takes the media players in the same area as the voice device that heard the command. Music Assistant players are preferred, and among those the ones currently playing. So assign each Voice PE and its Music Assistant player to the same area. Without that, the same name-based fallback as in "Hörbuch vorlesen" applies.
 
 **Together with "Hörbuch vorlesen".** If you turn on "Hörbuch starten, wenn nichts läuft" and nothing is playing when you set the timer, the sleep timer fires the `hoerbuch_vorlesen` event. The "Hörbuch vorlesen" automation then starts the current book. If that fails (for example, no book in progress), the error is announced on the voice device. This needs an automation created from the "Hörbuch vorlesen" blueprint.
 
