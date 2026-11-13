@@ -139,7 +139,7 @@ Music Assistant creates its own device for each player, separate from the Voice 
 
 | Field    | Default        | Description                                    |
 | -------- | -------------- | ---------------------------------------------- |
-| `aktion` | `start`        | `start` or `stopp`                             |
+| `aktion` | `start`        | `start`, `stopp` or `umschalten` (toggle: stop if the player or its group is playing, otherwise start) |
 | `player` | "Feste Player" | List of Music Assistant players to use instead |
 
 A dashboard cannot fire events directly, so add these scripts (Settings → Automations & scenes → Scripts, or `scripts.yaml`):
@@ -168,10 +168,10 @@ hoerbuch_umschalten:
   sequence:
     - event: hoerbuch_vorlesen
       event_data:
-        aktion: "{{ 'stopp' if is_state('media_player.alle_raeume', 'playing') else 'start' }}"
+        aktion: umschalten
 ```
 
-Without `player`, the automation's "Feste Player" are used (e.g. your group). To target another player, add `player: [media_player.kueche]` to `event_data`. In the toggle script, replace `media_player.alle_raeume` with your group. Then add the scripts to a dashboard, e.g. as a button card:
+Without `player`, the automation's "Feste Player" are used (e.g. your group). To target another player, add `player: [media_player.kueche]` to `event_data`. Then add the scripts to a dashboard, e.g. as a button card:
 
 ```yaml
 type: button
@@ -268,12 +268,14 @@ Both audiobook blueprints are controlled by Home Assistant events, so anything t
 
 | Event                          | Data                                             | Blueprint          |
 | ------------------------------ | ------------------------------------------------ | ------------------ |
-| `hoerbuch_vorlesen`            | `aktion` (`start`/`stopp`), `player`, `device`   | Hörbuch vorlesen   |
+| `hoerbuch_vorlesen`            | `aktion` (`start`/`stopp`/`umschalten`), `player`, `device` | Hörbuch vorlesen   |
 | `hoerbuch_schlaftimer_stellen` | `aktion` (`start`/`abbrechen`), `minuten`, `player`, `device` | Hörbuch-Schlaftimer |
 
 All fields are optional. See the blueprint sections above for the defaults.
 
-**Node-RED** (with `node-red-contrib-home-assistant-websocket`): use a **Fire Event** node. Set the event to e.g. `hoerbuch_schlaftimer_stellen` and the data to `{"aktion": "start", "minuten": 20}`. Alternatively, call the dashboard scripts with an **Action** node.
+**Create only one automation per blueprint.** Every automation made from a blueprint reacts to these events. With several "Hörbuch vorlesen" automations, one event starts the book several times. Voice commands hide this, because Assist hands a sentence to only one automation. To update a blueprint, re-import it; existing automations pick up the new version, so don't create a new one afterwards. To find duplicates, open the blueprint's ⋮ menu → **Show automations using this blueprint**.
+
+**Node-RED** (with `node-red-contrib-home-assistant-websocket`): use a **Fire Event** node. Set the event to e.g. `hoerbuch_vorlesen` with data `{"aktion": "umschalten"}`, or `hoerbuch_schlaftimer_stellen` with `{"aktion": "start", "minuten": 20}`. Alternatively, call the dashboard scripts with an **Action** node.
 
 **REST API:** create a long-lived access token in Home Assistant (your profile → **Security** → **Long-lived access tokens**). Then POST the event data to `/api/events/<event>`:
 
@@ -290,6 +292,11 @@ curl -X POST "$HA/api/events/hoerbuch_vorlesen" \
 curl -X POST "$HA/api/events/hoerbuch_vorlesen" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"aktion": "stopp"}'
+
+# Toggle: stop if playing, otherwise start
+curl -X POST "$HA/api/events/hoerbuch_vorlesen" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"aktion": "umschalten"}'
 
 # Sleep timer with the default length, or with 20 minutes
 curl -X POST "$HA/api/events/hoerbuch_schlaftimer_stellen" \

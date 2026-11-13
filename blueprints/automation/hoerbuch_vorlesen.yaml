@@ -21,8 +21,8 @@ blueprint:
 
     Der Hörbuch-Schlaftimer kann diese Automation über das Ereignis
     "hoerbuch_vorlesen" starten, wenn noch nichts läuft. Über dasselbe Ereignis
-    lassen sich auch Dashboard-Knöpfe bauen (Daten: aktion "start" oder "stopp",
-    optional player). Ohne player werden die festen Player verwendet, z.B. eine
+    lassen sich auch Dashboard-Knöpfe bauen (Daten: aktion "start", "stopp" oder
+    "umschalten", optional player). Ohne player werden die festen Player verwendet, z.B. eine
     Lautsprechergruppe für alle Räume.
     Ohne feste Player wird der Music-Assistant-Player im Raum des Sprachgeräts verwendet.
   domain: automation
@@ -61,7 +61,8 @@ triggers:
       - "Nicht mehr vorlesen"
     id: stopp
   # Wird z.B. vom Hörbuch-Schlaftimer oder von Dashboard-Skripten ausgelöst.
-  # Daten: aktion ("start" oder "stopp", Standard "start"), player (Liste, optional),
+  # Daten: aktion ("start", "stopp" oder "umschalten", Standard "start"),
+  # player (Liste, optional),
   # device (optional)
   - trigger: event
     event_type: hoerbuch_vorlesen
@@ -72,8 +73,8 @@ variables:
 
 actions:
   - variables:
-      ereignis_stopp: >
-        {{ trigger.id == 'ereignis' and trigger.event.data.get('aktion', 'start') == 'stopp' }}
+      aktion: >
+        {{ trigger.event.data.get('aktion', 'start') | lower if trigger.id == 'ereignis' else '' }}
       geraet: >
         {{ trigger.event.data.get('device', '') if trigger.id == 'ereignis' else (trigger.device_id or '') }}
       player: >
@@ -99,6 +100,25 @@ actions:
           {% endif %}
           {{ ma }}
         {% endif %}
+      # Läuft einer der Player oder eine Lautsprechergruppe, zu der einer gehört?
+      laeuft: >
+        {% set ns = namespace(ja=player | select('is_state', 'playing') | list | count > 0) %}
+        {% for e in integration_entities('music_assistant') | select('match', 'media_player[.]')
+             if not ns.ja and e not in player and is_state(e, 'playing') %}
+          {% set mitglieder = state_attr(e, 'group_members') or [] %}
+          {% set queue = state_attr(e, 'active_queue') %}
+          {% if state_attr(e, 'mass_player_type') == 'group' or mitglieder | count > 1 %}
+            {% for p in player %}
+              {% if p in mitglieder or (queue and state_attr(p, 'active_queue') == queue) %}
+                {% set ns.ja = true %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.ja }}
+      # "umschalten": stoppen, wenn etwas läuft, sonst starten
+      ereignis_stopp: >
+        {{ aktion == 'stopp' or (aktion == 'umschalten' and laeuft) }}
 
   - choose:
       # Hörbuch stoppen und Warteschlange leeren
