@@ -41,6 +41,7 @@ triggers:
     command:
       - "Lies [mir] [bitte] [das|mein] [aktuelle|aktuelles] (Buch|Hörbuch) [weiter] vor"
       - "Lies [mir] [bitte] weiter vor"
+      - "Lies [mein] (Buch|Audiobuch) weiter [vor]"
       - "(Spiel|Spiele|Starte|Start) [bitte] [mein|das|mir mein|mir das] [aktuelle|aktuelles] (Hörbuch|Hörspiel) [weiter|ab]"
       - "(Hörbuch|Hörspiel) (weiter|weiterhören|weiterspielen|fortsetzen|abspielen|starten)"
       - "Ich möchte [mein Hörbuch] weiterhören"
@@ -74,12 +75,9 @@ actions:
 
   - variables:
       buch: >
-        {% set inhalt = antwort.content if antwort is defined and antwort.status | default(0) == 200 else {} %}
-        {% set buecher = inhalt.libraryItems | default([]) | selectattr('mediaType', 'eq', 'book') | list %}
-        {% if buecher | count > 0 and buecher | selectattr('progressLastUpdate', 'defined') | list | count == buecher | count %}
+        {% set inhalt = antwort.content if antwort is defined and antwort.status | default(0) == 200 else {} %} {% set buecher = inhalt.libraryItems | default([]) | selectattr('mediaType', 'eq', 'book') | list %} {% if buecher | count > 0 and buecher | selectattr('progressLastUpdate', 'defined') | list | count == buecher | count %}
           {% set buecher = buecher | sort(attribute='progressLastUpdate', reverse=true) %}
-        {% endif %}
-        {{ buecher[0].media.metadata.title | default('') if buecher | count > 0 else '' }}
+        {% endif %} {{ buecher[0].media.metadata.title | default('') if buecher | count > 0 else '' }}
       fehler: >
         {% if player | count == 0 %}
           Ich habe keinen Music-Assistant-Player gefunden. Ordne das Sprachgerät einem
