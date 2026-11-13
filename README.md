@@ -133,6 +133,56 @@ Music Assistant creates its own device for each player, separate from the Voice 
 | ------------ | ------- | --------------------------------------------------------------------------- |
 | Feste Player | empty   | Music Assistant players to always use. Empty = the player in the device's area |
 
+**Speaker groups.** To listen in every room at once, create a group player in Music Assistant and set it as "Feste Player". Starting then plays on the group. Stopping also handles groups: if a playing Music Assistant group contains the target player, the whole group is paused, not just one speaker.
+
+**Dashboard buttons.** The automation also listens for the `hoerbuch_vorlesen` event, with this data:
+
+| Field    | Default        | Description                                    |
+| -------- | -------------- | ---------------------------------------------- |
+| `aktion` | `start`        | `start` or `stopp`                             |
+| `player` | "Feste Player" | List of Music Assistant players to use instead |
+
+A dashboard cannot fire events directly, so add these scripts (Settings → Automations & scenes → Scripts, or `scripts.yaml`):
+
+```yaml
+hoerbuch_start:
+  alias: Hörbuch starten
+  icon: mdi:book-play
+  sequence:
+    - event: hoerbuch_vorlesen
+      event_data:
+        aktion: start
+
+hoerbuch_stopp:
+  alias: Hörbuch stoppen
+  icon: mdi:book-cancel
+  sequence:
+    - event: hoerbuch_vorlesen
+      event_data:
+        aktion: stopp
+
+# Optional: one button for both
+hoerbuch_umschalten:
+  alias: Hörbuch an/aus
+  icon: mdi:book-music
+  sequence:
+    - event: hoerbuch_vorlesen
+      event_data:
+        aktion: "{{ 'stopp' if is_state('media_player.alle_raeume', 'playing') else 'start' }}"
+```
+
+Without `player`, the automation's "Feste Player" are used (e.g. your group). To target another player, add `player: [media_player.kueche]` to `event_data`. In the toggle script, replace `media_player.alle_raeume` with your group. Then add the scripts to a dashboard, e.g. as a button card:
+
+```yaml
+type: button
+entity: script.hoerbuch_umschalten
+tap_action:
+  action: perform-action
+  perform_action: script.hoerbuch_umschalten
+```
+
+Without "Feste Player" and without `player` in the event, the automation has no voice device to pick a player from, so nothing happens.
+
 **Limitations**
 
 - Music Assistant looks up the book by its title. If another provider (e.g. Spotify) has a book with the same title, Music Assistant may pick that one instead.

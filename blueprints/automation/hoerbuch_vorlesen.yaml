@@ -20,7 +20,10 @@ blueprint:
     einen rest_command namens "abs_hoerbuecher" in der configuration.yaml, siehe README.
 
     Der Hörbuch-Schlaftimer kann diese Automation über das Ereignis
-    "hoerbuch_vorlesen" starten, wenn noch nichts läuft.
+    "hoerbuch_vorlesen" starten, wenn noch nichts läuft. Über dasselbe Ereignis
+    lassen sich auch Dashboard-Knöpfe bauen (Daten: aktion "start" oder "stopp",
+    optional player). Ohne player werden die festen Player verwendet, z.B. eine
+    Lautsprechergruppe für alle Räume.
     Ohne feste Player wird der Music-Assistant-Player im Raum des Sprachgeräts verwendet.
   domain: automation
   source_url: https://github.com/oxivanisher/oxivanisher-ha-blueprints/blob/main/blueprints/automation/hoerbuch_vorlesen.yaml
@@ -57,7 +60,9 @@ triggers:
       - "Hör [bitte] auf (vorzulesen|zu lesen)"
       - "Nicht mehr vorlesen"
     id: stopp
-  # Wird z.B. vom Hörbuch-Schlaftimer ausgelöst, Daten: player (Liste), device (optional)
+  # Wird z.B. vom Hörbuch-Schlaftimer oder von Dashboard-Skripten ausgelöst.
+  # Daten: aktion ("start" oder "stopp", Standard "start"), player (Liste, optional),
+  # device (optional)
   - trigger: event
     event_type: hoerbuch_vorlesen
     id: ereignis
@@ -67,6 +72,8 @@ variables:
 
 actions:
   - variables:
+      ereignis_stopp: >
+        {{ trigger.id == 'ereignis' and trigger.event.data.get('aktion', 'start') == 'stopp' }}
       geraet: >
         {{ trigger.event.data.get('device', '') if trigger.id == 'ereignis' else (trigger.device_id or '') }}
       player: >
@@ -96,26 +103,48 @@ actions:
   - choose:
       # Hörbuch stoppen und Warteschlange leeren
       - conditions:
-          - condition: trigger
-            id: stopp
+          - condition: template
+            value_template: "{{ trigger.id == 'stopp' or ereignis_stopp }}"
         sequence:
           - if:
               - condition: template
                 value_template: "{{ player | count == 0 }}"
             then:
-              - set_conversation_response: >
-                  Ich habe keinen Music-Assistant-Player gefunden. Weise den Music-Assistant-Player
-                  dem gleichen Bereich zu wie das Sprachgerät, oder lege feste Player in der Automation fest.
+              - if:
+                  - condition: trigger
+                    id: stopp
+                then:
+                  - set_conversation_response: >
+                      Ich habe keinen Music-Assistant-Player gefunden. Weise den Music-Assistant-Player
+                      dem gleichen Bereich zu wie das Sprachgerät, oder lege feste Player in der Automation fest.
               - stop: Kein Player gefunden
           - variables:
+              # Läuft eine Lautsprechergruppe, zu der einer der Player gehört,
+              # wird die ganze Gruppe gestoppt statt nur der einzelne Lautsprecher.
               ziel: >
+                {% set ns = namespace(gruppen=[]) %}
+                {% for e in integration_entities('music_assistant') | select('match', 'media_player[.]')
+                     if e not in player and is_state(e, 'playing') %}
+                  {% set mitglieder = state_attr(e, 'group_members') or [] %}
+                  {% if mitglieder | count > 1 and mitglieder | select('in', player) | list | count > 0 %}
+                    {% set ns.gruppen = ns.gruppen + [e] %}
+                  {% endif %}
+                {% endfor %}
                 {% set aktiv = player | select('is_state', 'playing') | list %}
-                {{ aktiv if aktiv | count > 0 else player }}
+                {% if ns.gruppen | count > 0 %}
+                  {{ ns.gruppen }}
+                {% else %}
+                  {{ aktiv if aktiv | count > 0 else player }}
+                {% endif %}
           - action: media_player.media_pause
             target:
               entity_id: "{{ ziel }}"
             continue_on_error: true
-          - set_conversation_response: Okay, Hörbuch gestoppt.
+          - if:
+              - condition: trigger
+                id: stopp
+            then:
+              - set_conversation_response: Okay, Hörbuch gestoppt.
           # Kurz warten, damit Music Assistant die Position an Audiobookshelf meldet
           - delay:
               seconds: 2
