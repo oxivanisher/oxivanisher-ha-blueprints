@@ -47,6 +47,24 @@ blueprint:
           min: 0
           max: 300
           unit_of_measurement: s
+    hoerbuch_starten:
+      name: Hörbuch starten, wenn nichts läuft
+      description: >
+        Läuft beim Stellen des Timers noch nichts, wird das aktuelle Hörbuch gestartet.
+        Braucht eine Automation aus dem Blueprint "Hörbuch vorlesen (Deutsch)".
+      default: false
+      selector:
+        boolean:
+    warteschlange_leeren:
+      name: Warteschlange leeren
+      description: >
+        Nach dem Pausieren die Warteschlange des Players leeren. Sinnvoll, wenn das Buch
+        danach auf einem anderen Gerät weitergehört wird, damit hier keine veraltete
+        Position hängen bleibt. Beim nächsten Vorlesen wird die Stelle dann frisch
+        aus Audiobookshelf geholt.
+      default: true
+      selector:
+        boolean:
 
 mode: parallel
 max: 20
@@ -57,6 +75,9 @@ triggers:
       - "[Stell|Stelle|Setz|Setze|Starte|Start|Mach|Mache] [einen|den|mir einen] (Schlaftimer|Schlaf-Timer|Schlaf Timer|Sleeptimer|Sleep-Timer|Sleep Timer|Einschlaftimer) [auf|für|von|in] {dauer}"
       - "[Bitte] (Stopp|Stoppe|Stop|Pausiere|Pausier|Beende|Beend) [das Hörbuch|das Hörspiel|die Musik|die Wiedergabe] [bitte] in {dauer}"
       - "(Hörbuch|Hörspiel|Musik|Wiedergabe) in {dauer} (stoppen|pausieren|beenden|ausschalten)"
+      - "Lies [mir] [bitte] [noch] für {dauer} vor"
+      - "Lies [mir] [bitte] [das|mein] [aktuelle|aktuelles] (Buch|Hörbuch) [noch] für {dauer} vor"
+      - "(Spiel|Spiele) [bitte] [mir] [mein|das] [aktuelle|aktuelles] (Hörbuch|Hörspiel) [noch] für {dauer}"
     id: dauer
   - trigger: conversation
     command:
@@ -76,6 +97,8 @@ variables:
   feste_player: !input feste_player
   standard_minuten: !input standard_minuten
   ausblenden_sekunden: !input ausblenden_sekunden
+  hoerbuch_starten: !input hoerbuch_starten
+  warteschlange_leeren: !input warteschlange_leeren
 
 actions:
   - choose:
@@ -147,6 +170,14 @@ actions:
             continue_on_error: true
           - delay:
               seconds: 2
+          - if:
+              - condition: template
+                value_template: "{{ warteschlange_leeren }}"
+            then:
+              - action: media_player.clear_playlist
+                target:
+                  entity_id: "{{ aktiv }}"
+                continue_on_error: true
           # Lautstärke für das nächste Mal wiederherstellen
           - repeat:
               for_each: "{{ startwerte }}"
@@ -211,8 +242,10 @@ actions:
                   {% set ma = im_raum | select('in', integration_entities('music_assistant')) | list %}
                   {% set kandidaten = ma if ma | count > 0 else im_raum %}
                   {% set spielend = kandidaten | select('is_state', 'playing') | list %}
-                  {{ spielend if spielend | count > 0 else kandidaten }}
+                  {{ spielend if spielend | count > 0 else kandidaten[:1] }}
                 {% endif %}
+              starten: >
+                {{ hoerbuch_starten and player | select('is_state', 'playing') | list | count == 0 }}
               dauer_text: >
                 {% set s = sekunden | int %}
                 {% set h = s // 3600 %}
@@ -251,6 +284,17 @@ actions:
                       aktion: start
                       player: "{{ player }}"
                       sekunden: "{{ sekunden }}"
-                  - set_conversation_response: "Okay, Schlaftimer auf {{ dauer_text }} gestellt."
+                  - if:
+                      - condition: template
+                        value_template: "{{ starten }}"
+                    then:
+                      # Startet die Automation aus dem Blueprint "Hörbuch vorlesen"
+                      - event: hoerbuch_vorlesen
+                        event_data:
+                          player: "{{ player }}"
+                          device: "{{ trigger.device_id or '' }}"
+                      - set_conversation_response: "Okay, ich lese dir {{ dauer_text }} vor."
+                    else:
+                      - set_conversation_response: "Okay, Schlaftimer auf {{ dauer_text }} gestellt."
                 else:
                   - set_conversation_response: Das habe ich zeitlich nicht verstanden.

@@ -1,0 +1,129 @@
+blueprint:
+  name: Hörbuch vorlesen (Deutsch)
+  description: |
+    Liest per Sprachbefehl das aktuelle Hörbuch aus Audiobookshelf über
+    Music Assistant vor, komplett lokal, für Assist und Voice PE.
+
+    Beispiele:
+    - "Lies mir das aktuelle Buch vor"
+    - "Lies mir weiter vor"
+    - "Spiel mein Hörbuch"
+    - "Hörbuch weiterhören"
+
+    Welches Buch gerade gehört wird, wird direkt bei Audiobookshelf abgefragt
+    (/api/me/items-in-progress). So geht es auch dann an der richtigen Stelle weiter,
+    wenn zwischendurch auf einem anderen Gerät gehört wurde. Dafür braucht es einmalig
+    einen rest_command namens "abs_hoerbuecher" in der configuration.yaml, siehe README.
+
+    Der Hörbuch-Schlaftimer kann diese Automation über das Ereignis
+    "hoerbuch_vorlesen" starten, wenn noch nichts läuft.
+    Ohne feste Player wird der Music-Assistant-Player im Raum des Sprachgeräts verwendet.
+  domain: automation
+  source_url: https://github.com/oxivanisher/oxivanisher-ha-blueprints/blob/main/blueprints/automation/hoerbuch_vorlesen.yaml
+  input:
+    feste_player:
+      name: Feste Player (optional)
+      description: |
+        Leer lassen, um automatisch den Music-Assistant-Player im Raum (Bereich)
+        des Sprachgeräts zu verwenden. Sonst wird immer auf diesen Playern abgespielt.
+      default: []
+      selector:
+        entity:
+          domain: media_player
+          integration: music_assistant
+          multiple: true
+
+mode: parallel
+max: 10
+
+triggers:
+  - trigger: conversation
+    command:
+      - "Lies [mir] [bitte] [das|mein] [aktuelle|aktuelles] (Buch|Hörbuch) [weiter] vor"
+      - "Lies [mir] [bitte] weiter vor"
+      - "(Spiel|Spiele|Starte|Start) [bitte] [mein|das|mir mein|mir das] [aktuelle|aktuelles] (Hörbuch|Hörspiel) [weiter|ab]"
+      - "(Hörbuch|Hörspiel) (weiter|weiterhören|weiterspielen|fortsetzen|abspielen|starten)"
+      - "Ich möchte [mein Hörbuch] weiterhören"
+    id: sprache
+  # Wird z.B. vom Hörbuch-Schlaftimer ausgelöst, Daten: player (Liste), device (optional)
+  - trigger: event
+    event_type: hoerbuch_vorlesen
+    id: ereignis
+
+variables:
+  feste_player: !input feste_player
+
+actions:
+  - variables:
+      geraet: >
+        {{ trigger.event.data.get('device', '') if trigger.id == 'ereignis' else (trigger.device_id or '') }}
+      player: >
+        {% if trigger.id == 'ereignis' and trigger.event.data.get('player') %}
+          {{ trigger.event.data.player }}
+        {% elif feste_player | count > 0 %}
+          {{ feste_player }}
+        {% else %}
+          {% set bereich = area_id(geraet) if geraet else none %}
+          {% set im_raum = (area_entities(bereich) if bereich else []) | select('match', 'media_player[.]') | list %}
+          {{ (im_raum | select('in', integration_entities('music_assistant')) | list)[:1] }}
+        {% endif %}
+
+  - action: rest_command.abs_hoerbuecher
+    response_variable: antwort
+    continue_on_error: true
+
+  - variables:
+      buch: >
+        {% set inhalt = antwort.content if antwort is defined and antwort.status | default(0) == 200 else {} %}
+        {% set buecher = inhalt.libraryItems | default([]) | selectattr('mediaType', 'eq', 'book') | list %}
+        {% if buecher | count > 0 and buecher | selectattr('progressLastUpdate', 'defined') | list | count == buecher | count %}
+          {% set buecher = buecher | sort(attribute='progressLastUpdate', reverse=true) %}
+        {% endif %}
+        {{ buecher[0].media.metadata.title | default('') if buecher | count > 0 else '' }}
+      fehler: >
+        {% if player | count == 0 %}
+          Ich habe keinen Music-Assistant-Player gefunden. Ordne das Sprachgerät einem
+          Bereich mit einem Player zu oder lege feste Player in der Automation fest.
+        {% elif antwort is not defined or antwort.status | default(0) != 200 %}
+          Audiobookshelf hat nicht geantwortet.
+        {% elif buch | length == 0 %}
+          Du hast gerade kein Hörbuch angefangen.
+        {% endif %}
+
+  - if:
+      - condition: template
+        value_template: "{{ fehler | trim | length > 0 }}"
+    then:
+      - if:
+          - condition: trigger
+            id: sprache
+        then:
+          - set_conversation_response: "{{ fehler | trim }}"
+        else:
+          # Über das Ereignis gestartet: Fehler auf dem Sprachgerät ansagen
+          - if:
+              - condition: template
+                value_template: "{{ geraet | length > 0 }}"
+            then:
+              - action: assist_satellite.announce
+                target:
+                  device_id: "{{ geraet }}"
+                data:
+                  message: "{{ fehler | trim }}"
+                continue_on_error: true
+      - stop: Hörbuch konnte nicht gestartet werden
+
+  - if:
+      - condition: trigger
+        id: sprache
+    then:
+      - set_conversation_response: "Okay, {{ buch }}."
+  # "replace" ersetzt eine alte Warteschlange, Music Assistant setzt an der
+  # in Audiobookshelf gespeicherten Stelle fort.
+  - action: music_assistant.play_media
+    target:
+      entity_id: "{{ player }}"
+    data:
+      media_type: audiobook
+      media_id: "{{ buch }}"
+      enqueue: replace

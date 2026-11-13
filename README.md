@@ -81,6 +81,60 @@ The assistant confirms right away. When the time is up, the reminder is announce
 
 **Manual import:** Settings → Automations & scenes → Blueprints → Import blueprint, and paste the URL of `blueprints/automation/sprach_erinnerung.yaml`.
 
+## Hörbuch vorlesen (Deutsch)
+
+Reads your current audiobook aloud, by voice, and picks up where you left off, even if you listened on another device (phone app, web player) in between. Music Assistant's own "last played" sort is unreliable for Audiobookshelf libraries, so this blueprint asks Audiobookshelf directly which book is in progress. It then plays that book through Music Assistant, which resumes at the saved position.
+
+[![Open your Home Assistant instance and show the blueprint import dialog.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Foxivanisher%2Foxivanisher-ha-blueprints%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fhoerbuch_vorlesen.yaml)
+
+**Examples**
+
+- "Lies mir das aktuelle Buch vor" / "Lies mir weiter vor"
+- "Spiel mein Hörbuch" / "Spiel mein Hörbuch weiter"
+- "Hörbuch weiterhören" / "Hörbuch fortsetzen"
+
+**One-time setup: Audiobookshelf API access**
+
+A blueprint cannot call an HTTP API on its own, so you add a `rest_command` to `configuration.yaml` once. The blueprint expects it under the name `abs_hoerbuecher`.
+
+1. In Audiobookshelf, open **Settings → Users**, click your user and copy the API token. On newer versions you can also create an API key under **Settings → API Keys**.
+2. Add the token to `secrets.yaml`, including the word `Bearer`:
+
+   ```yaml
+   abs_token: "Bearer YOUR_TOKEN"
+   ```
+
+3. Add this to `configuration.yaml` and adjust the address:
+
+   ```yaml
+   rest_command:
+     abs_hoerbuecher:
+       url: "http://audiobookshelf.example.lan:13378/api/me/items-in-progress"
+       method: GET
+       headers:
+         Authorization: !secret abs_token
+   ```
+
+4. Restart Home Assistant (or reload "REST commands" under Developer tools → YAML).
+5. Test it under **Developer tools → Actions**: run `rest_command.abs_hoerbuecher` and check that the response lists your book under `content.libraryItems`.
+
+The token belongs to one Audiobookshelf user. Use the user whose progress you want to follow.
+
+Playback starts with `enqueue: replace`, so an old Music Assistant queue is replaced. The sleep timer can start this automation through the `hoerbuch_vorlesen` event (see below).
+
+**Which player?** Same as the sleep timer: without fixed players, the blueprint uses the Music Assistant player in the area of the voice device that heard the command.
+
+**Inputs**
+
+| Input        | Default | Description                                                                 |
+| ------------ | ------- | --------------------------------------------------------------------------- |
+| Feste Player | empty   | Music Assistant players to always use. Empty = the player in the device's area |
+
+**Limitations**
+
+- Music Assistant looks up the book by its title. If another provider (e.g. Spotify) has a book with the same title, Music Assistant may pick that one instead.
+- Podcasts in progress are ignored. Only books are resumed.
+
 ## Hörbuch-Schlaftimer (Deutsch)
 
 A voice sleep timer for audiobooks (e.g. Audiobookshelf via Music Assistant). It works with any media player. Shortly before the timer ends, the volume fades out. Then playback pauses and the original volume is restored for next time.
@@ -93,11 +147,16 @@ A voice sleep timer for audiobooks (e.g. Audiobookshelf via Music Assistant). It
 - "Stell einen Schlaftimer auf eine halbe Stunde"
 - "Stoppe das Hörbuch in 45 Minuten" / "Hörbuch in 1 Stunde stoppen"
 - "Schlaftimer starten" (uses the default duration)
+- "Lies mir für 30 Minuten vor" / "Spiel mein Hörbuch für eine Stunde"
 - "Schlaftimer abbrechen" / "Brich den Schlaftimer ab"
 
 "Sleeptimer", "Sleep Timer" and "Einschlaftimer" also work. A new timer replaces the one already running for the same player.
 
 **Which player?** If you leave "Feste Player" empty, the blueprint takes the media players in the same area as the voice device that heard the command. Music Assistant players are preferred, and among those the ones currently playing. So assign each Voice PE and its Music Assistant player to the same area.
+
+**Together with "Hörbuch vorlesen".** If you turn on "Hörbuch starten, wenn nichts läuft" and nothing is playing when you set the timer, the sleep timer fires the `hoerbuch_vorlesen` event. The "Hörbuch vorlesen" automation then starts the current book. If that fails (for example, no book in progress), the error is announced on the voice device. This needs an automation created from the "Hörbuch vorlesen" blueprint.
+
+**Clearing the queue.** After pausing, the sleep timer clears the player's Music Assistant queue (input "Warteschlange leeren", on by default). If you then keep listening on another device, the Voice PE does not hold on to an outdated position. The next "Lies mir weiter vor" fetches the current position from Audiobookshelf.
 
 **Inputs**
 
@@ -106,6 +165,8 @@ A voice sleep timer for audiobooks (e.g. Audiobookshelf via Music Assistant). It
 | Feste Player  | empty   | Media players to always use. Empty = players in the device's area |
 | Standarddauer | 30 min  | Duration when none is given                                      |
 | Ausblendzeit  | 60 s    | How long the volume fades out before pausing (0 = no fade)       |
+| Hörbuch starten, wenn nichts läuft | off | Start the current book via "Hörbuch vorlesen" if nothing plays |
+| Warteschlange leeren | on | Clear the Music Assistant queue after pausing |
 
 **Requirements**
 
