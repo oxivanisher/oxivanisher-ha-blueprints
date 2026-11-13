@@ -307,6 +307,17 @@ curl -X POST "$HA/api/events/hoerbuch_schlaftimer_stellen" \
   -d '{"minuten": 20}'
 ```
 
+**Shell script:** [examples/hoerbuch.sh](examples/hoerbuch.sh) wraps these calls. Set `HA_URL` and `HA_TOKEN` as environment variables or in `~/.config/hoerbuch.env`, then run:
+
+```bash
+hoerbuch.sh start | stop | toggle
+hoerbuch.sh sleep          # default length
+hoerbuch.sh sleep 20       # 20 minutes
+hoerbuch.sh sleep cancel
+```
+
+Optionally set `HA_PLAYER=media_player.wohnung` (comma-separated for several) to override the automations' "Feste Player". The script exits with an error if Home Assistant rejects the request.
+
 The API answers right away with `{"message": "Event ... fired."}`, which only means that Home Assistant received the event. Whether something actually plays is reported as described below. The token gives full access to Home Assistant, so keep it secret.
 
 ### Errors from buttons, Node-RED and the API
