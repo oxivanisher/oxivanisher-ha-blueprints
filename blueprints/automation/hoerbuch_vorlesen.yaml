@@ -91,7 +91,7 @@ actions:
                  + device_entities(geraet) | select('match', 'media_player[.]') | map('state_attr', 'friendly_name') | list)
                  | select | map('lower') | list %}
             {% set ns = namespace(treffer=[]) %}
-            {% for e in ma_alle if (state_attr(e, 'group_members') or []) | count <= 1 %}
+            {% for e in ma_alle if (state_attr(e, 'group_members') or []) | count <= 1 and state_attr(e, 'mass_player_type') != 'group' %}
               {% set n = (state_attr(e, 'friendly_name') or '') | lower %}
               {% if namen | select('in', n) | list | count > 0 %}{% set ns.treffer = ns.treffer + [e] %}{% endif %}
             {% endfor %}
@@ -117,19 +117,37 @@ actions:
                   - set_conversation_response: >
                       Ich habe keinen Music-Assistant-Player gefunden. Weise den Music-Assistant-Player
                       dem gleichen Bereich zu wie das Sprachgerät, oder lege feste Player in der Automation fest.
+                else:
+                  - action: persistent_notification.create
+                    data:
+                      notification_id: hoerbuch_vorlesen
+                      title: Hörbuch vorlesen
+                      message: "Hörbuch nicht gestoppt: Es ist kein Player angegeben und in der Automation sind keine festen Player eingestellt."
+                  - event: hoerbuch_fehler
+                    event_data:
+                      quelle: "{{ this.entity_id }}"
+                      meldung: "Hörbuch nicht gestoppt: Es ist kein Player angegeben und in der Automation sind keine festen Player eingestellt."
               - stop: Kein Player gefunden
           - variables:
               # Läuft eine Lautsprechergruppe, zu der einer der Player gehört,
               # wird die ganze Gruppe gestoppt statt nur der einzelne Lautsprecher.
+              # Mitglied ist ein Player, wenn er in group_members steht oder dieselbe
+              # Music-Assistant-Warteschlange (active_queue) abspielt wie die Gruppe.
               ziel: >
                 {% set ns = namespace(gruppen=[]) %}
                 {% for e in integration_entities('music_assistant') | select('match', 'media_player[.]')
                      if e not in player and is_state(e, 'playing') %}
                   {% set mitglieder = state_attr(e, 'group_members') or [] %}
-                  {% if mitglieder | count > 1 and mitglieder | select('in', player) | list | count > 0 %}
-                    {% set ns.gruppen = ns.gruppen + [e] %}
+                  {% set queue = state_attr(e, 'active_queue') %}
+                  {% if state_attr(e, 'mass_player_type') == 'group' or mitglieder | count > 1 %}
+                    {% for p in player %}
+                      {% if p in mitglieder or (queue and state_attr(p, 'active_queue') == queue) %}
+                        {% set ns.gruppen = ns.gruppen + [e] %}
+                      {% endif %}
+                    {% endfor %}
                   {% endif %}
                 {% endfor %}
+                {% set ns.gruppen = ns.gruppen | unique | list %}
                 {% set aktiv = player | select('is_state', 'playing') | list %}
                 {% if ns.gruppen | count > 0 %}
                   {{ ns.gruppen }}
@@ -183,7 +201,16 @@ actions:
             then:
               - set_conversation_response: "{{ fehler | trim }}"
             else:
-              # Über das Ereignis gestartet: Fehler auf dem Sprachgerät ansagen
+              # Über das Ereignis gestartet: Fehler melden und auf dem Sprachgerät ansagen
+              - action: persistent_notification.create
+                data:
+                  notification_id: hoerbuch_vorlesen
+                  title: Hörbuch vorlesen
+                  message: "{{ fehler | trim }}"
+              - event: hoerbuch_fehler
+                event_data:
+                  quelle: "{{ this.entity_id }}"
+                  meldung: "{{ fehler | trim }}"
               - if:
                   - condition: template
                     value_template: "{{ geraet | length > 0 }}"

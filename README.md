@@ -181,7 +181,7 @@ tap_action:
   perform_action: script.hoerbuch_umschalten
 ```
 
-Without "Feste Player" and without `player` in the event, the automation has no voice device to pick a player from, so nothing happens.
+Without "Feste Player" and without `player` in the event, the automation has no voice device to pick a player from. Nothing plays, and the error is reported (see [Errors](#errors-from-buttons-node-red-and-the-api)). For Node-RED and the REST API, see [Control from Node-RED and the REST API](#control-from-node-red-and-the-rest-api).
 
 **Limitations**
 
@@ -211,6 +211,37 @@ A voice sleep timer for audiobooks (e.g. Audiobookshelf via Music Assistant). It
 
 **Clearing the queue.** After pausing, the sleep timer clears the player's Music Assistant queue (input "Warteschlange leeren", on by default). If you then keep listening on another device, the Voice PE does not hold on to an outdated position. The next "Lies mir weiter vor" fetches the current position from Audiobookshelf.
 
+**Speaker groups.** If the chosen player belongs to a Music Assistant group that is currently playing, the timer acts on the whole group. For example, if the book plays in all rooms and you set the timer by voice in the bedroom, all rooms fade out and stop together. You can also set your group as "Feste Player" in the sleep timer automation. The two automations have separate inputs, so a group set in "Hörbuch vorlesen" does not carry over.
+
+**Dashboard buttons.** The sleep timer listens for the `hoerbuch_schlaftimer_stellen` event:
+
+| Field     | Default                 | Description                                    |
+| --------- | ----------------------- | ---------------------------------------------- |
+| `aktion`  | `start`                 | `start` or `abbrechen`                         |
+| `minuten` | "Standarddauer"         | Timer length in minutes                        |
+| `player`  | see below               | List of media players to use instead           |
+| `device`  | none                    | Voice device on which errors are also announced |
+
+Which player is used: `player` from the event, otherwise "Feste Player". If neither is set, the timer uses the Music Assistant players that are currently playing (members of a playing group are left out, so only the group is faded). "Hörbuch starten, wenn nichts läuft" and "Warteschlange leeren" work as with voice commands.
+
+```yaml
+hoerbuch_schlaftimer:
+  alias: Hörbuch-Schlaftimer
+  icon: mdi:sleep
+  sequence:
+    - event: hoerbuch_schlaftimer_stellen
+      event_data:
+        aktion: start    # add "minuten: 45" for a different length
+
+hoerbuch_schlaftimer_abbrechen:
+  alias: Schlaftimer abbrechen
+  icon: mdi:sleep-off
+  sequence:
+    - event: hoerbuch_schlaftimer_stellen
+      event_data:
+        aktion: abbrechen
+```
+
 **Inputs**
 
 | Input         | Default | Description                                                      |
@@ -230,6 +261,56 @@ A voice sleep timer for audiobooks (e.g. Audiobookshelf via Music Assistant). It
 
 - Running timers are lost if Home Assistant restarts.
 - Cancelling during the fade-out does not stop the fade.
+
+## Control from Node-RED and the REST API
+
+Both audiobook blueprints are controlled by Home Assistant events, so anything that can fire an event can use them:
+
+| Event                          | Data                                             | Blueprint          |
+| ------------------------------ | ------------------------------------------------ | ------------------ |
+| `hoerbuch_vorlesen`            | `aktion` (`start`/`stopp`), `player`, `device`   | Hörbuch vorlesen   |
+| `hoerbuch_schlaftimer_stellen` | `aktion` (`start`/`abbrechen`), `minuten`, `player`, `device` | Hörbuch-Schlaftimer |
+
+All fields are optional. See the blueprint sections above for the defaults.
+
+**Node-RED** (with `node-red-contrib-home-assistant-websocket`): use a **Fire Event** node. Set the event to e.g. `hoerbuch_schlaftimer_stellen` and the data to `{"aktion": "start", "minuten": 20}`. Alternatively, call the dashboard scripts with an **Action** node.
+
+**REST API:** create a long-lived access token in Home Assistant (your profile → **Security** → **Long-lived access tokens**). Then POST the event data to `/api/events/<event>`:
+
+```bash
+TOKEN="your long-lived token"
+HA="http://homeassistant.example.lan:8123"
+
+# Start the book
+curl -X POST "$HA/api/events/hoerbuch_vorlesen" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"aktion": "start"}'
+
+# Stop the book
+curl -X POST "$HA/api/events/hoerbuch_vorlesen" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"aktion": "stopp"}'
+
+# Sleep timer with the default length, or with 20 minutes
+curl -X POST "$HA/api/events/hoerbuch_schlaftimer_stellen" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{}'
+curl -X POST "$HA/api/events/hoerbuch_schlaftimer_stellen" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"minuten": 20}'
+```
+
+The API answers right away with `{"message": "Event ... fired."}`, which only means that Home Assistant received the event. Whether something actually plays is reported as described below. The token gives full access to Home Assistant, so keep it secret.
+
+### Errors from buttons, Node-RED and the API
+
+Voice commands answer by voice. Events have nobody to answer to, so problems are reported in three ways:
+
+- A **notification** in Home Assistant (bell icon in the sidebar). A newer message replaces the older one.
+- A `hoerbuch_fehler` **event** with `quelle` (the automation) and `meldung` (the text). Listen for it in Node-RED, e.g. to send a push message.
+- An **announcement** on the voice device, if the event contained `device`.
+
+Reported errors include: no player found, Audiobookshelf not answering, no book in progress, an invalid sleep timer length, and a sleep timer set while nothing plays (when "Hörbuch starten, wenn nichts läuft" is off).
 
 ## License
 
