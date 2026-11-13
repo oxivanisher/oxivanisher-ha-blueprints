@@ -1,0 +1,256 @@
+blueprint:
+  name: Hörbuch-Schlaftimer (Deutsch)
+  description: |
+    Schlaftimer per Sprachbefehl, komplett lokal, für Assist und Voice PE.
+    Gedacht für Hörbücher über Music Assistant, funktioniert aber mit jedem Media Player.
+
+    Beispiele:
+    - "Schlaftimer 20 Minuten"
+    - "Stell einen Schlaftimer auf eine halbe Stunde"
+    - "Stoppe das Hörbuch in 45 Minuten"
+    - "Schlaftimer starten" (Standarddauer)
+    - "Schlaftimer abbrechen"
+
+    Kurz vor Ablauf wird die Lautstärke langsam heruntergeblendet, dann wird pausiert
+    und die ursprüngliche Lautstärke wiederhergestellt. Ein neuer Schlaftimer ersetzt
+    den laufenden. Ohne feste Player wird der Music-Assistant-Player im Raum des
+    Sprachgeräts verwendet. Laufende Timer gehen bei einem Neustart von Home Assistant verloren.
+  domain: automation
+  source_url: https://github.com/oxivanisher/oxivanisher-ha-blueprints/blob/main/blueprints/automation/hoerbuch_schlaftimer.yaml
+  input:
+    feste_player:
+      name: Feste Player (optional)
+      description: |
+        Leer lassen, um automatisch den Player im Raum (Bereich) des Sprachgeräts zu verwenden.
+        Bevorzugt werden Music-Assistant-Player, die gerade abspielen.
+        Sonst wirkt der Schlaftimer immer auf diese Player.
+      default: []
+      selector:
+        entity:
+          domain: media_player
+          multiple: true
+    standard_minuten:
+      name: Standarddauer
+      description: Dauer, wenn keine angegeben wird ("Schlaftimer starten").
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 180
+          unit_of_measurement: min
+    ausblenden_sekunden:
+      name: Ausblendzeit
+      description: So lange wird vor dem Pausieren die Lautstärke heruntergeblendet.
+      default: 60
+      selector:
+        number:
+          min: 0
+          max: 300
+          unit_of_measurement: s
+
+mode: parallel
+max: 20
+
+triggers:
+  - trigger: conversation
+    command:
+      - "[Stell|Stelle|Setz|Setze|Starte|Start|Mach|Mache] [einen|den|mir einen] (Schlaftimer|Schlaf-Timer|Schlaf Timer|Sleeptimer|Sleep-Timer|Sleep Timer|Einschlaftimer) [auf|für|von|in] {dauer}"
+      - "[Bitte] (Stopp|Stoppe|Stop|Pausiere|Pausier|Beende|Beend) [das Hörbuch|das Hörspiel|die Musik|die Wiedergabe] [bitte] in {dauer}"
+      - "(Hörbuch|Hörspiel|Musik|Wiedergabe) in {dauer} (stoppen|pausieren|beenden|ausschalten)"
+    id: dauer
+  - trigger: conversation
+    command:
+      - "[Stell|Stelle|Setz|Setze|Starte|Start|Mach|Mache] [einen|den|mir einen] (Schlaftimer|Schlaf-Timer|Schlaf Timer|Sleeptimer|Sleep-Timer|Sleep Timer|Einschlaftimer) [an|ein|starten]"
+    id: standard
+  - trigger: conversation
+    command:
+      - "(Schlaftimer|Schlaf-Timer|Schlaf Timer|Sleeptimer|Sleep-Timer|Sleep Timer|Einschlaftimer) (abbrechen|stoppen|beenden|löschen|aus|ausschalten|deaktivieren)"
+      - "(Brich|Stopp|Stoppe|Beende|Lösche|Lösch) [den|meinen] (Schlaftimer|Schlaf-Timer|Schlaf Timer|Sleeptimer|Sleep-Timer|Sleep Timer|Einschlaftimer) [ab]"
+      - "Kein (Schlaftimer|Schlaf-Timer|Schlaf Timer|Sleeptimer|Sleep-Timer|Sleep Timer|Einschlaftimer) [mehr]"
+    id: abbrechen
+  - trigger: event
+    event_type: hoerbuch_schlaftimer
+    id: ausfuehren
+
+variables:
+  feste_player: !input feste_player
+  standard_minuten: !input standard_minuten
+  ausblenden_sekunden: !input ausblenden_sekunden
+
+actions:
+  - choose:
+      # Teil 2: im Hintergrund warten, ausblenden und pausieren
+      - conditions:
+          - condition: trigger
+            id: ausfuehren
+          - condition: template
+            value_template: >
+              {{ trigger.event.data.quelle == this.entity_id and trigger.event.data.aktion == 'start' }}
+        sequence:
+          - variables:
+              player: "{{ trigger.event.data.player }}"
+              gesamt: "{{ trigger.event.data.sekunden | int }}"
+              ausblenden: "{{ [ausblenden_sekunden | int, gesamt] | min }}"
+              ende: "{{ now().timestamp() + gesamt - ausblenden }}"
+          # Warten, bis das Ausblenden beginnt. Ein neuer Timer oder "abbrechen"
+          # für einen dieser Player beendet diesen Lauf.
+          - repeat:
+              sequence:
+                - wait_for_trigger:
+                    - trigger: event
+                      event_type: hoerbuch_schlaftimer
+                  timeout:
+                    seconds: "{{ [ende - now().timestamp(), 0] | max }}"
+                  continue_on_timeout: true
+                - if:
+                    - condition: template
+                      value_template: >
+                        {{ wait.trigger is not none
+                           and wait.trigger.event.data.quelle == this.entity_id
+                           and wait.trigger.event.data.player | select('in', player) | list | count > 0 }}
+                  then:
+                    - stop: Schlaftimer ersetzt oder abgebrochen
+              until:
+                - condition: template
+                  value_template: "{{ now().timestamp() >= ende - 1 }}"
+          - variables:
+              aktiv: "{{ player | select('is_state', 'playing') | list }}"
+          - condition: template
+            value_template: "{{ aktiv | count > 0 }}"
+          - variables:
+              startwerte: >
+                {% set ns = namespace(liste=[]) %}
+                {% for p in aktiv %}
+                  {% set ns.liste = ns.liste + [{'player': p, 'lautstaerke': state_attr(p, 'volume_level') | float(0.4)}] %}
+                {% endfor %}
+                {{ ns.liste }}
+              stufen: "{{ 20 if ausblenden > 0 else 0 }}"
+          - repeat:
+              count: "{{ stufen }}"
+              sequence:
+                - variables:
+                    stufe: "{{ repeat.index }}"
+                - repeat:
+                    for_each: "{{ startwerte }}"
+                    sequence:
+                      - action: media_player.volume_set
+                        target:
+                          entity_id: "{{ repeat.item.player }}"
+                        data:
+                          volume_level: "{{ (repeat.item.lautstaerke * (1 - stufe / stufen)) | round(3) }}"
+                        continue_on_error: true
+                - delay:
+                    milliseconds: "{{ (ausblenden * 1000 / stufen) | int }}"
+          - action: media_player.media_pause
+            target:
+              entity_id: "{{ aktiv }}"
+            continue_on_error: true
+          - delay:
+              seconds: 2
+          # Lautstärke für das nächste Mal wiederherstellen
+          - repeat:
+              for_each: "{{ startwerte }}"
+              sequence:
+                - action: media_player.volume_set
+                  target:
+                    entity_id: "{{ repeat.item.player }}"
+                  data:
+                    volume_level: "{{ repeat.item.lautstaerke }}"
+                  continue_on_error: true
+
+      # Teil 1: Sprachbefehl auswerten und sofort antworten
+      - conditions:
+          - condition: trigger
+            id:
+              - dauer
+              - standard
+              - abbrechen
+        sequence:
+          - variables:
+              text: "{{ trigger.slots.get('dauer', '') | lower | trim(' .!?') }}"
+              # Falls ein Satz wie "Schlaftimer aus" beim Platzhalter {dauer} landet
+              aktion: >
+                {% if trigger.id == 'abbrechen'
+                   or text is match('^(abbrechen|stopp|stoppen|stop|beenden|löschen|aus|ausschalten|deaktivieren)$') %}
+                  abbrechen
+                {% else %}
+                  start
+                {% endif %}
+              sekunden: >
+                {% if trigger.id == 'standard' or text is match('^(an|ein|starten|start)$') %}
+                  {{ standard_minuten | int * 60 }}
+                {% else %}
+                  {% set woerter = {
+                    'ein': 1, 'eine': 1, 'einer': 1, 'einen': 1, 'zwei': 2, 'drei': 3,
+                    'vier': 4, 'fünf': 5, 'sechs': 6, 'sieben': 7, 'acht': 8, 'neun': 9,
+                    'zehn': 10, 'elf': 11, 'zwölf': 12, 'fünfzehn': 15, 'zwanzig': 20,
+                    'fünfundzwanzig': 25, 'dreissig': 30, 'dreißig': 30, 'vierzig': 40,
+                    'fünfundvierzig': 45, 'fünfzig': 50, 'sechzig': 60, 'neunzig': 90,
+                    'halben': 0.5, 'halbe': 0.5, 'viertel': 0.25, 'dreiviertel': 0.75,
+                    'eineinhalb': 1.5, 'anderthalb': 1.5 } %}
+                  {% set t = text | replace(',', '.') %}
+                  {% set ns = namespace(summe=0) %}
+                  {% for zahl, einheit in t | regex_findall('([0-9]+(?:[.][0-9]+)?|[a-zäöüß]+)[ ]*(sek[a-z.]*|min[a-z.]*|std[.]?|stunden?)') %}
+                    {% set n = zahl | float(woerter.get(zahl, 0)) %}
+                    {% set faktor = 1 if einheit.startswith('sek') else (60 if einheit.startswith('min') else 3600) %}
+                    {% set ns.summe = ns.summe + n * faktor %}
+                  {% endfor %}
+                  {% if ns.summe == 0 %}
+                    {# Zahl ohne Einheit, z.B. "Schlaftimer 20", gilt als Minuten #}
+                    {% set z = t | regex_findall('[0-9]+') %}
+                    {% set ns.summe = (z[0] | int * 60) if z | count > 0 else woerter.get(t, 0) * 60 %}
+                  {% endif %}
+                  {{ ns.summe | round(0) | int }}
+                {% endif %}
+              player: >
+                {% if feste_player | count > 0 %}
+                  {{ feste_player }}
+                {% else %}
+                  {% set bereich = area_id(trigger.device_id) if trigger.device_id else none %}
+                  {% set im_raum = (area_entities(bereich) if bereich else []) | select('match', 'media_player[.]') | list %}
+                  {% set ma = im_raum | select('in', integration_entities('music_assistant')) | list %}
+                  {% set kandidaten = ma if ma | count > 0 else im_raum %}
+                  {% set spielend = kandidaten | select('is_state', 'playing') | list %}
+                  {{ spielend if spielend | count > 0 else kandidaten }}
+                {% endif %}
+              dauer_text: >
+                {% set s = sekunden | int %}
+                {% set h = s // 3600 %}
+                {% set m = (s % 3600) // 60 %}
+                {% set teile = [] %}
+                {% if h > 0 %}{% set teile = teile + [h ~ (' Stunde' if h == 1 else ' Stunden')] %}{% endif %}
+                {% if m > 0 %}{% set teile = teile + [m ~ (' Minute' if m == 1 else ' Minuten')] %}{% endif %}
+                {% if teile | count == 0 %}{% set teile = [s ~ ' Sekunden'] %}{% endif %}
+                {{ teile | join(' und ') }}
+          - if:
+              - condition: template
+                value_template: "{{ player | count == 0 }}"
+            then:
+              - set_conversation_response: >
+                  Ich habe keinen Player gefunden. Ordne das Sprachgerät einem Bereich
+                  mit einem Player zu oder lege feste Player in der Automation fest.
+              - stop: Kein Player gefunden
+          - if:
+              - condition: template
+                value_template: "{{ aktion == 'abbrechen' }}"
+            then:
+              - event: hoerbuch_schlaftimer
+                event_data:
+                  quelle: "{{ this.entity_id }}"
+                  aktion: abbrechen
+                  player: "{{ player }}"
+              - set_conversation_response: Okay, Schlaftimer abgebrochen.
+            else:
+              - if:
+                  - condition: template
+                    value_template: "{{ sekunden | int > 0 }}"
+                then:
+                  - event: hoerbuch_schlaftimer
+                    event_data:
+                      quelle: "{{ this.entity_id }}"
+                      aktion: start
+                      player: "{{ player }}"
+                      sekunden: "{{ sekunden }}"
+                  - set_conversation_response: "Okay, Schlaftimer auf {{ dauer_text }} gestellt."
+                else:
+                  - set_conversation_response: Das habe ich zeitlich nicht verstanden.

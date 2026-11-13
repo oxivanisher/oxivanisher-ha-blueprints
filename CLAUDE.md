@@ -28,6 +28,8 @@ Share fully local, German-language voice automations for Home Assistant Assist a
 
 - `blueprints/automation/sprach_erinnerung.yaml`: working in the owner's setup (duration in seconds/minutes/hours and combinations, clock time "um HH:MM"). `source_url` and the README import badge point at github.com/oxivanisher/oxivanisher-ha-blueprints.
 
+- `blueprints/automation/hoerbuch_schlaftimer.yaml`: sleep timer for Music Assistant / audiobooks. Not yet tested in HA. It uses the event self-trigger pattern. The background run waits in a `wait_for_trigger` loop, so a newer timer or "abbrechen" for an overlapping player ends it. If no players are configured, it picks the player by the area of `trigger.device_id`.
+
 ## Ideas / backlog
 
 - Reminders that survive HA restarts (store due time, e.g. in an `input_datetime` helper or via a timestamp trigger), at the cost of needing helpers.

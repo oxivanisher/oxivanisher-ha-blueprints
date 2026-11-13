@@ -81,6 +81,42 @@ The assistant confirms right away. When the time is up, the reminder is announce
 
 **Manual import:** Settings → Automations & scenes → Blueprints → Import blueprint, and paste the URL of `blueprints/automation/sprach_erinnerung.yaml`.
 
+## Hörbuch-Schlaftimer (Deutsch)
+
+A voice sleep timer for audiobooks (e.g. Audiobookshelf via Music Assistant). It works with any media player. Shortly before the timer ends, the volume fades out. Then playback pauses and the original volume is restored for next time.
+
+[![Open your Home Assistant instance and show the blueprint import dialog.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Foxivanisher%2Foxivanisher-ha-blueprints%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fhoerbuch_schlaftimer.yaml)
+
+**Examples**
+
+- "Schlaftimer 20 Minuten" (a number without a unit counts as minutes)
+- "Stell einen Schlaftimer auf eine halbe Stunde"
+- "Stoppe das Hörbuch in 45 Minuten" / "Hörbuch in 1 Stunde stoppen"
+- "Schlaftimer starten" (uses the default duration)
+- "Schlaftimer abbrechen" / "Brich den Schlaftimer ab"
+
+"Sleeptimer", "Sleep Timer" and "Einschlaftimer" also work. A new timer replaces the one already running for the same player.
+
+**Which player?** If you leave "Feste Player" empty, the blueprint takes the media players in the same area as the voice device that heard the command. Music Assistant players are preferred, and among those the ones currently playing. So assign each Voice PE and its Music Assistant player to the same area.
+
+**Inputs**
+
+| Input         | Default | Description                                                      |
+| ------------- | ------- | ---------------------------------------------------------------- |
+| Feste Player  | empty   | Media players to always use. Empty = players in the device's area |
+| Standarddauer | 30 min  | Duration when none is given                                      |
+| Ausblendzeit  | 60 s    | How long the volume fades out before pausing (0 = no fade)       |
+
+**Requirements**
+
+- A German Assist pipeline with free-text speech-to-text (e.g. Whisper), same as for the reminder.
+- Media players that support `volume_set` and `media_pause`, such as Music Assistant players.
+
+**Limitations**
+
+- Running timers are lost if Home Assistant restarts.
+- Cancelling during the fade-out does not stop the fade.
+
 ## License
 
 [MIT](LICENSE)
