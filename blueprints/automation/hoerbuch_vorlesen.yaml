@@ -77,7 +77,7 @@ triggers:
   - trigger: conversation
     command:
       - "(Stopp|Stoppe|Stop|Beende|Beend|Pausiere|Pausier) [bitte] [das|mein] (Hörbuch|Hörspiel|Buch|Audiobuch|Vorlesen)"
-      - "(Hörbuch|Hörspiel|Vorlesen) (stoppen|beenden|pausieren|aus|ausschalten)"
+      - "(Hörbuch|Hörspiel|Vorlesen|Audio[-]buch|buch) (stopp|stoppen|beenden|pausieren|aus|ausschalten)"
       - "Hör [bitte] auf (vorzulesen|zu lesen)"
       - "Nicht mehr vorlesen"
     id: stop
