@@ -69,9 +69,9 @@ triggers:
     command:
       - "Lies [mir] [bitte] [das|mein] [aktuelle|aktuelles] (Buch|Hörbuch) [weiter] vor"
       - "Lies [mir] [bitte] weiter vor"
-      - "Lies [mein] (Buch|Audiobuch) weiter [vor]"
+      - "Lies [mein] (Buch|Audio[-]buch) weiter [vor]"
       - "(Spiel|Spiele|Starte|Start) [bitte] [mein|das|mir mein|mir das] [aktuelle|aktuelles] (Hörbuch|Hörspiel) [weiter|ab]"
-      - "(Buch|Audiobuch|Hörbuch|Hörspiel) (weiter|weiterhören|weiterspielen|fortsetzen|abspielen|starten|[weiter|vor]lesen)"
+      - "(Buch|Audio[-]buch|Hörbuch|Hörspiel) (weiter|weiterhören|weiterspielen|fortsetzen|abspielen|starten|[weiter|vor]lesen)"
       - "Ich möchte [mein Hörbuch] weiterhören"
     id: voice
   - trigger: conversation
