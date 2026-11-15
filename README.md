@@ -133,6 +133,9 @@ Music Assistant creates its own device for each player, separate from the Voice 
 | ------------ | ------- | --------------------------------------------------------------------------- |
 | Feste Player | empty   | Music Assistant players to always use. Empty = the player in the device's area |
 | Zurückspulen | 30 s    | Rewind this far before pausing, so the last part is repeated when you continue (0 = off) |
+| Start-Lautstärke | 0 % | Volume to set when the book starts (0 = leave unchanged) |
+
+**Start volume.** With "Start-Lautstärke" set, the volume is set before playback starts and once more as soon as the player plays (a Music Assistant group that is off may ignore the first one). The voice response can then take a moment longer. For a group, Music Assistant scales the rooms relative to each other, so 30 % on the group does not mean 30 % in every room.
 
 **Speaker groups.** To listen in every room at once, create a group player in Music Assistant and set it as "Feste Player". Starting then plays on the group. Stopping also handles groups: if a playing Music Assistant group contains the target player, the whole group is paused, not just one speaker.
 
@@ -142,6 +145,7 @@ Music Assistant creates its own device for each player, separate from the Voice 
 | -------- | -------------- | ---------------------------------------------- |
 | `action` | `start`        | `start`, `stop` or `toggle` (toggle: stop if the player or its group is playing, otherwise start) |
 | `players` | "Feste Player" | List of Music Assistant players to use instead |
+| `volume` | "Start-Lautstärke" | Volume in percent when starting (0 = use the input) |
 
 A dashboard cannot fire events directly, so add these scripts (Settings → Automations & scenes → Scripts, or `scripts.yaml`):
 
@@ -222,6 +226,7 @@ A voice sleep timer for audiobooks (e.g. Audiobookshelf via Music Assistant). It
 | `minutes` | "Standarddauer"         | Timer length in minutes                        |
 | `players` | see below               | List of media players to use instead           |
 | `device`  | none                    | Voice device on which errors are also announced |
+| `volume`  | "Lautstärke im Schlafmodus" | Sleep volume in percent for this call |
 
 Which player is used: `players` from the event, otherwise "Feste Player". If neither is set, the timer uses the Music Assistant players that are currently playing (members of a playing group are left out, so only the group is faded). "Hörbuch starten, wenn nichts läuft" and "Warteschlange leeren" work as with voice commands.
 
@@ -253,6 +258,7 @@ audiobook_sleep_timer_cancel:
 | Hörbuch starten, wenn nichts läuft | off | Start the current book via "Hörbuch vorlesen" if nothing plays |
 | Warteschlange leeren | on | Clear the Music Assistant queue after pausing |
 | Zurückspulen | 30 s | Rewind this far before pausing (after the fade-out, so it is silent; 0 = off) |
+| Lautstärke im Schlafmodus | 0 % | Lower to this volume when the timer is set (never raises it); a book started by the timer starts at this volume (0 = leave unchanged) |
 
 **Requirements**
 
@@ -270,8 +276,8 @@ Both audiobook blueprints are controlled by Home Assistant events, so anything t
 
 | Event                   | Data                                                        | Blueprint           |
 | ----------------------- | ----------------------------------------------------------- | ------------------- |
-| `audiobook_play`        | `action` (`start`/`stop`/`toggle`), `players`, `device`     | Hörbuch vorlesen    |
-| `audiobook_sleep_timer` | `action` (`start`/`cancel`), `minutes`, `players`, `device` | Hörbuch-Schlaftimer |
+| `audiobook_play`        | `action` (`start`/`stop`/`toggle`), `players`, `device`, `volume`     | Hörbuch vorlesen    |
+| `audiobook_sleep_timer` | `action` (`start`/`cancel`), `minutes`, `players`, `device`, `volume` | Hörbuch-Schlaftimer |
 
 All fields are optional. See the blueprint sections above for the defaults.
 
@@ -313,6 +319,7 @@ curl -X POST "$HA/api/events/audiobook_sleep_timer" \
 
 ```bash
 audiobook.sh start | stop | toggle
+audiobook.sh start 30       # start at 30 % volume
 audiobook.sh sleep          # default length
 audiobook.sh sleep 20       # 20 minutes
 audiobook.sh sleep cancel

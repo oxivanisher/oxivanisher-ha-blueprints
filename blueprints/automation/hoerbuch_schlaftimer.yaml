@@ -81,6 +81,17 @@ blueprint:
           min: 0
           max: 300
           unit_of_measurement: s
+    sleep_volume:
+      name: Lautstärke im Schlafmodus
+      description: >
+        Beim Stellen des Timers wird auf diese Lautstärke gesenkt (nie lauter gestellt).
+        Startet der Timer das Hörbuch, beginnt es mit dieser Lautstärke. 0 = nicht ändern.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
 
 mode: parallel
 max: 20
@@ -110,7 +121,8 @@ triggers:
     id: run
   # Öffentliches Ereignis für Dashboard, Node-RED und REST-API.
   # Daten: action ("start" oder "cancel", Standard "start"),
-  # minutes (Standard: Standarddauer), players (Liste, optional), device (optional)
+  # minutes (Standard: Standarddauer), players (Liste, optional), device (optional),
+  # volume (Lautstärke im Schlafmodus in Prozent, optional)
   - trigger: event
     event_type: audiobook_sleep_timer
     id: external
@@ -122,6 +134,7 @@ variables:
   start_audiobook: !input start_audiobook
   clear_queue: !input clear_queue
   rewind_seconds: !input rewind_seconds
+  sleep_volume: !input sleep_volume
 
 actions:
   - choose:
@@ -383,6 +396,10 @@ actions:
                 {{ ns.items | unique | list }}
               start_book: >
                 {{ start_audiobook and players | select('is_state', 'playing') | list | count == 0 }}
+              # Lautstärke im Schlafmodus, über die API auch pro Aufruf (volume)
+              target_volume: >
+                {% set v = payload.get('volume') %}
+                {{ [(v if v is not none else sleep_volume) | int(0), 100] | min }}
               duration_text: >
                 {% set s = seconds | int %}
                 {% set h = s // 3600 %}
@@ -460,13 +477,34 @@ actions:
                       - condition: template
                         value_template: "{{ start_book }}"
                     then:
-                      # Startet die Automation aus dem Blueprint "Hörbuch vorlesen"
+                      # Startet die Automation aus dem Blueprint "Hörbuch vorlesen",
+                      # mit der Lautstärke im Schlafmodus
                       - event: audiobook_play
                         event_data:
                           players: "{{ players }}"
                           device: "{{ device }}"
+                          volume: "{{ target_volume | int }}"
                       - set_conversation_response: "Okay, ich lese dir {{ duration_text }} vor."
                     else:
+                      # Läuft schon etwas: auf die Lautstärke im Schlafmodus senken,
+                      # aber nie lauter stellen
+                      - repeat:
+                          for_each: >
+                            {% set ns = namespace(items=[]) %}
+                            {% if target_volume | int > 0 %}
+                              {% for p in players if is_state(p, 'playing')
+                                   and state_attr(p, 'volume_level') | float(0) > target_volume | int / 100 %}
+                                {% set ns.items = ns.items + [p] %}
+                              {% endfor %}
+                            {% endif %}
+                            {{ ns.items }}
+                          sequence:
+                            - action: media_player.volume_set
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                              data:
+                                volume_level: "{{ target_volume | int / 100 }}"
+                              continue_on_error: true
                       - set_conversation_response: "Okay, Schlaftimer auf {{ duration_text }} gestellt."
                 else:
                   - set_conversation_response: Das habe ich zeitlich nicht verstanden.

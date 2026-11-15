@@ -51,6 +51,17 @@ blueprint:
           min: 0
           max: 300
           unit_of_measurement: s
+    start_volume:
+      name: Start-Lautstärke
+      description: >
+        Lautstärke, auf die beim Start gestellt wird. Bei einer Lautsprechergruppe
+        passt Music Assistant die Räume relativ zueinander an. 0 = nicht ändern.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
 
 mode: parallel
 max: 10
@@ -74,7 +85,8 @@ triggers:
     id: stop
   # Wird z.B. vom Hörbuch-Schlaftimer oder von Dashboard-Skripten ausgelöst.
   # Daten: action ("start", "stop" oder "toggle", Standard "start"),
-  # players (Liste, optional), device (optional)
+  # players (Liste, optional), device (optional),
+  # volume (Start-Lautstärke in Prozent, optional)
   - trigger: event
     event_type: audiobook_play
     id: event
@@ -82,6 +94,7 @@ triggers:
 variables:
   fixed_players: !input fixed_players
   rewind_seconds: !input rewind_seconds
+  start_volume: !input start_volume
 
 actions:
   - variables:
@@ -312,12 +325,46 @@ actions:
             id: voice
         then:
           - set_conversation_response: "Okay, {{ book }}."
+      - variables:
+          play_targets: "{{ players if fixed_players | count > 0 or trigger.id == 'event' else players[:1] }}"
+          # Lautstärke aus dem Ereignis (z.B. vom Schlaftimer), sonst die Start-Lautstärke.
+          # 0 im Ereignis gilt als "nicht angegeben".
+          volume: >
+            {% set v = trigger.event.data.get('volume') | int(0) if trigger.id == 'event' else 0 %}
+            {{ v if v > 0 else start_volume | int(0) }}
+      # Lautstärke vor dem Start setzen ...
+      - if:
+          - condition: template
+            value_template: "{{ volume | int > 0 }}"
+        then:
+          - action: media_player.volume_set
+            target:
+              entity_id: "{{ play_targets }}"
+            data:
+              volume_level: "{{ [volume | int, 100] | min / 100 }}"
+            continue_on_error: true
       # "replace" ersetzt eine alte Warteschlange, Music Assistant setzt an der
       # in Audiobookshelf gespeicherten Stelle fort.
       - action: music_assistant.play_media
         target:
-          entity_id: "{{ players if fixed_players | count > 0 or trigger.id == 'event' else players[:1] }}"
+          entity_id: "{{ play_targets }}"
         data:
           media_type: audiobook
           media_id: "{{ book }}"
           enqueue: replace
+      # ... und noch einmal, sobald abgespielt wird. Eine ausgeschaltete Gruppe
+      # übernimmt die Lautstärke sonst unter Umständen nicht.
+      - if:
+          - condition: template
+            value_template: "{{ volume | int > 0 }}"
+        then:
+          - wait_template: "{{ play_targets | select('is_state', 'playing') | list | count > 0 }}"
+            timeout:
+              seconds: 10
+            continue_on_timeout: true
+          - action: media_player.volume_set
+            target:
+              entity_id: "{{ play_targets }}"
+            data:
+              volume_level: "{{ [volume | int, 100] | min / 100 }}"
+            continue_on_error: true

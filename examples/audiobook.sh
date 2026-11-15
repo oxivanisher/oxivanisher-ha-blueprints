@@ -3,7 +3,8 @@
 # Home Assistant REST API.
 #
 # Usage:
-#   audiobook.sh start | stop | toggle
+#   audiobook.sh start [PERCENT]   # optional start volume, overrides "Start-Lautstärke"
+#   audiobook.sh stop | toggle
 #   audiobook.sh sleep [MINUTES]   # default length from the blueprint if omitted
 #   audiobook.sh sleep cancel
 #   audiobook.sh vol up | down      # one volume step (step size set by the player)
@@ -28,7 +29,7 @@ config="${XDG_CONFIG_HOME:-$HOME/.config}/audiobook.env"
 : "${HA_TOKEN:?HA_TOKEN is not set}"
 
 usage() {
-  echo "Usage: $(basename "$0") start|stop|toggle|sleep [MINUTES|cancel]|vol up|down|PERCENT" >&2
+  echo "Usage: $(basename "$0") start [PERCENT]|stop|toggle|sleep [MINUTES|cancel]|vol up|down|PERCENT" >&2
   exit 1
 }
 
@@ -61,7 +62,14 @@ call() {
 }
 
 case "${1:-}" in
-  start)  fire audiobook_play '{"action": "start"}' ;;
+  start)
+    case "${2:-}" in
+      "")      fire audiobook_play '{"action": "start"}' ;;
+      *[!0-9]*) usage ;;
+      *)       (( 10#$2 <= 100 )) || usage
+               fire audiobook_play "{\"action\": \"start\", \"volume\": $(( 10#$2 ))}" ;;
+    esac
+    ;;
   stop)   fire audiobook_play '{"action": "stop"}' ;;
   toggle) fire audiobook_play '{"action": "toggle"}' ;;
   sleep)
