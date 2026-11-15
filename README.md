@@ -96,52 +96,41 @@ Reads your current audiobook aloud, by voice, and picks up where you left off, e
 
 **One-time setup: Audiobookshelf API access**
 
-A blueprint cannot call an HTTP API on its own, so you add a `rest_command` to `configuration.yaml` once. The blueprint expects it under the name `audiobookshelf_in_progress`.
+A blueprint cannot call an HTTP API on its own, so you add two general-purpose `rest_command`s to `configuration.yaml` once. The blueprints pass the API path (and for writes the data) to them, so the address and token are defined in one place.
 
 1. In Audiobookshelf, open **Settings → Users**, click your user and copy the API token. On newer versions you can also create an API key under **Settings → API Keys**.
-2. Add the token to `secrets.yaml`, including the word `Bearer`:
+2. Add the token and the API address to `secrets.yaml`. Keep the word `Bearer` and the `{{ path }}` at the end of the address:
 
    ```yaml
    abs_token: "Bearer YOUR_TOKEN"
+   abs_api_url: "http://audiobookshelf.example.lan:13378/api/{{ path }}"
    ```
 
-3. Add this to `configuration.yaml` and adjust the address:
+3. Add this to `configuration.yaml`:
 
    ```yaml
    rest_command:
-     audiobookshelf_in_progress:
-       url: "http://audiobookshelf.example.lan:13378/api/me/items-in-progress"
+     audiobookshelf_get:
+       url: !secret abs_api_url
        method: GET
-       headers:
+       headers: &abs_headers
          Authorization: !secret abs_token
+         Content-Type: application/json
+     audiobookshelf_patch:
+       url: !secret abs_api_url
+       method: PATCH
+       headers: *abs_headers
+       payload: "{{ payload | to_json }}"
    ```
 
+   `audiobookshelf_get` is needed for playback. `audiobookshelf_patch` is only needed for "Zurückspulen" (see below), but it doesn't hurt to add it right away.
+
 4. Restart Home Assistant (or reload "REST commands" under Developer tools → YAML).
-5. Test it under **Developer tools → Actions**: run `rest_command.audiobookshelf_in_progress` and check that the response lists your book under `content.libraryItems`.
+5. Test it under **Developer tools → Actions**: run `rest_command.audiobookshelf_get` with the data `path: me/items-in-progress` and check that the response lists your book under `content.libraryItems`.
 
 The token belongs to one Audiobookshelf user. Use the user whose progress you want to follow.
 
-**Optional: rewind on stop.** To hear the last part again when you continue, add two more commands and set the input "Zurückspulen" (e.g. 30 s) in both audiobook automations:
-
-```yaml
-rest_command:
-  audiobookshelf_in_progress:
-    # as above
-  audiobookshelf_get_progress:
-    url: "http://audiobookshelf.example.lan:13378/api/me/progress/{{ item_id }}"
-    method: GET
-    headers:
-      Authorization: !secret abs_token
-  audiobookshelf_set_progress:
-    url: "http://audiobookshelf.example.lan:13378/api/me/progress/{{ item_id }}"
-    method: PATCH
-    headers:
-      Authorization: !secret abs_token
-      Content-Type: application/json
-    payload: '{"currentTime": {{ current_time }}}'
-```
-
-"Zurückspulen" is off (0) by default, because a missing `rest_command` stops the automation with an error. Leave it at 0 if you don't add these commands.
+**Optional: rewind on stop.** To hear the last part again when you continue, add `audiobookshelf_patch` as above and set the input "Zurückspulen" (e.g. 30 s) in both audiobook automations. It is off (0) by default, because a missing `rest_command` stops the automation with an error. Leave it at 0 if you don't add `audiobookshelf_patch`.
 
 How it works: before pausing, the blueprint reads the book's position from Audiobookshelf. Music Assistant reports it there about every 30 seconds, so it is never ahead of what you heard. The blueprint adds the time since that report (at most 30 seconds) to estimate where you are. After stopping, it sets the position in Audiobookshelf to that estimate minus the rewind time. It does not seek in Music Assistant: after a seek, Music Assistant reported a position that was too far ahead, so the book skipped forward on the next start. If Audiobookshelf returns no position, the stop still works and a notification explains why there was no rewind.
 
@@ -380,7 +369,7 @@ Reported errors include: no player found, Audiobookshelf not answering, no book 
 Internal names (inputs, events, event data) were renamed to English. User-facing texts and voice commands are still German. After re-importing the blueprints:
 
 1. **Inputs:** open each automation made from these blueprints and set its inputs again. The old values are not carried over, because the input keys changed.
-2. **rest_command:** rename `abs_hoerbuecher` to `audiobookshelf_in_progress` in `configuration.yaml` and reload REST commands.
+2. **rest_command:** replace the old command(s) with `audiobookshelf_get` and `audiobookshelf_patch` as described in the setup above, and reload REST commands.
 3. **Scripts, Node-RED, API calls:** update events and event data.
 
 | Old                                  | New                                      |
@@ -394,6 +383,7 @@ Internal names (inputs, events, event data) were renamed to English. User-facing
 | `player`                             | `players`                                |
 | `quelle` / `meldung` (error event)   | `source` / `message`                     |
 | `examples/hoerbuch.sh`, `hoerbuch.env` | `examples/audiobook.sh`, `audiobook.env` |
+| rest_command `abs_hoerbuecher`, later `audiobookshelf_in_progress`, `audiobookshelf_get_progress`, `audiobookshelf_set_progress` | `audiobookshelf_get` and `audiobookshelf_patch` (with `path`, `payload`) |
 
 ## License
 

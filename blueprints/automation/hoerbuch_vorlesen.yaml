@@ -17,8 +17,8 @@ blueprint:
     Welches Buch gerade gehört wird, wird direkt bei Audiobookshelf abgefragt
     (/api/me/items-in-progress). So geht es auch dann an der richtigen Stelle weiter,
     wenn zwischendurch auf einem anderen Gerät gehört wurde. Dafür braucht es einmalig
-    einen rest_command namens "audiobookshelf_in_progress" in der configuration.yaml,
-    siehe README.
+    die rest_commands "audiobookshelf_get" (und fürs Zurückspulen "audiobookshelf_patch")
+    in der configuration.yaml, siehe README.
 
     Der Hörbuch-Schlaftimer kann diese Automation über das Ereignis
     "audiobook_play" starten, wenn noch nichts läuft. Über dasselbe Ereignis
@@ -45,8 +45,8 @@ blueprint:
       description: >
         So viele Sekunden wird beim Stoppen zurückgespult, damit beim Weiterhören
         ein Stück wiederholt wird. Die Position wird direkt in Audiobookshelf gesetzt.
-        Braucht die rest_commands "audiobookshelf_get_progress" und
-        "audiobookshelf_set_progress" (siehe README). 0 = aus.
+        Braucht die rest_commands "audiobookshelf_get" und "audiobookshelf_patch"
+        (siehe README). 0 = aus.
       default: 0
       selector:
         number:
@@ -213,7 +213,9 @@ actions:
             then:
               # Audiobookshelf-Position vor dem Pausieren lesen. Music Assistant meldet sie dort
               # etwa alle 30 Sekunden, sie liegt also nie vor der gehörten Stelle.
-              - action: rest_command.audiobookshelf_in_progress
+              - action: rest_command.audiobookshelf_get
+                data:
+                  path: me/items-in-progress
                 response_variable: abs_list
                 continue_on_error: true
               - variables:
@@ -222,9 +224,9 @@ actions:
                     {% set books = content.get('libraryItems', []) | selectattr('mediaType', 'eq', 'book')
                          | selectattr('progressLastUpdate', 'defined') | sort(attribute='progressLastUpdate', reverse=true) | list %}
                     {{ books[0].id if books | count > 0 else '' }}
-              - action: rest_command.audiobookshelf_get_progress
+              - action: rest_command.audiobookshelf_get
                 data:
-                  item_id: "{{ rewind_item if rewind_item | length > 0 else 'kein-buch' }}"
+                  path: "me/progress/{{ rewind_item if rewind_item | length > 0 else 'kein-buch' }}"
                 response_variable: abs_progress
                 continue_on_error: true
               - variables:
@@ -265,10 +267,11 @@ actions:
                   - condition: template
                     value_template: "{{ rewind_target | int >= 0 }}"
                 then:
-                  - action: rest_command.audiobookshelf_set_progress
+                  - action: rest_command.audiobookshelf_patch
                     data:
-                      item_id: "{{ rewind_item }}"
-                      current_time: "{{ rewind_target | int }}"
+                      path: "me/progress/{{ rewind_item }}"
+                      payload:
+                        currentTime: "{{ rewind_target | int }}"
                     continue_on_error: true
                 else:
                   - action: persistent_notification.create
@@ -277,7 +280,7 @@ actions:
                       title: Hörbuch vorlesen
                       message: >
                         Nicht zurückgespult: Audiobookshelf hat keine Position geliefert. Prüfe die
-                        rest_commands audiobookshelf_in_progress und audiobookshelf_get_progress.
+                        rest_commands audiobookshelf_get und audiobookshelf_patch.
             else:
               - action: media_player.media_pause
                 target:
@@ -297,7 +300,9 @@ actions:
                 continue_on_error: true
     # Hörbuch starten
     default:
-      - action: rest_command.audiobookshelf_in_progress
+      - action: rest_command.audiobookshelf_get
+        data:
+          path: me/items-in-progress
         response_variable: response
         continue_on_error: true
 
