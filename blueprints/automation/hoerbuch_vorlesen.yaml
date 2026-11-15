@@ -43,9 +43,11 @@ blueprint:
     rewind_seconds:
       name: Zurückspulen
       description: >
-        Beim Stoppen wird so viele Sekunden zurückgespult. Beim Weiterhören wird
-        dieses Stück wiederholt. 0 = aus.
-      default: 30
+        So viele Sekunden wird beim Stoppen zurückgespult, damit beim Weiterhören
+        ein Stück wiederholt wird. Die Position wird direkt in Audiobookshelf gesetzt.
+        Braucht die rest_commands "audiobookshelf_get_progress" und
+        "audiobookshelf_set_progress" (siehe README). 0 = aus.
+      default: 0
       selector:
         number:
           min: 0
@@ -202,97 +204,97 @@ actions:
                 {% else %}
                   {{ active if active | count > 0 else players }}
                 {% endif %}
-          # Vor dem Pausieren zurückspulen, damit beim Weiterhören ein Stück wiederholt
-          # wird. Music Assistant meldet beim Pausieren diese Position an Audiobookshelf.
-          - repeat:
-              for_each: "{{ targets | select('is_state', 'playing') | list if rewind_seconds | int > 0 else [] }}"
-              sequence:
-                # Position zuerst aus der Warteschlange von Music Assistant holen
-                - action: music_assistant.get_queue
-                  target:
-                    entity_id: "{{ repeat.item }}"
-                  response_variable: queue_response
-                  continue_on_error: true
-                - variables:
-                    queue: >
-                      {{ queue_response.get(repeat.item, {}) if queue_response is defined and queue_response is mapping else {} }}
-                    # Ersatzweise die Attribute des Players oder eines Gruppenmitglieds
-                    candidates: >
-                      {{ [repeat.item] + ((state_attr(repeat.item, 'group_members') or []) | reject('eq', repeat.item) | list) }}
-                    # raw: zuletzt gemeldete Position (nie weiter als die echte Stelle),
-                    # est: hochgerechnete aktuelle Position, dur: Länge des Titels
-                    pos_info: >
-                      {% set ns = namespace(raw=-1, est=-1, dur=0) %}
-                      {% set elapsed = queue.get('elapsed_time') %}
-                      {% if elapsed is number and elapsed >= 0 %}
-                        {% set ns.raw = elapsed %}
-                        {% set ns.est = elapsed %}
-                        {% set ns.dur = (queue.get('current_item') or {}).get('duration') | float(0) %}
-                      {% else %}
-                        {% for c in candidates if ns.raw < 0 %}
-                          {% set pos = state_attr(c, 'media_position') %}
-                          {% set updated = state_attr(c, 'media_position_updated_at') %}
-                          {% if pos is number and updated %}
-                            {% set age = (now() - as_datetime(updated | string)).total_seconds() %}
-                            {# Veraltete Werte, z.B. von einer früheren Wiedergabe, ignorieren #}
-                            {% if 0 <= age <= 300 %}
-                              {% set ns.raw = pos %}
-                              {% set ns.est = pos + (age if is_state(c, 'playing') else 0) %}
-                              {% set ns.dur = state_attr(c, 'media_duration') | float(0) %}
-                            {% endif %}
-                          {% endif %}
-                        {% endfor %}
-                      {% endif %}
-                      {% if ns.dur > 0 and ns.raw > ns.dur + 5 %}{% set ns.raw = -1 %}{% endif %}
-                      {{ {'raw': ns.raw, 'est': ns.est} }}
-                    # Nie nach vorne springen: höchstens bis zur zuletzt gemeldeten Position
-                    seek_to: >
-                      {{ [[pos_info.est | float(0) - rewind_seconds | int, pos_info.raw | float(0)] | min, 0] | max | round(0) | int }}
-                    seek_started: "{{ now().isoformat() }}"
-                - if:
-                    - condition: template
-                      value_template: "{{ pos_info.raw | float(-1) >= 0 }}"
-                  then:
-                    - action: media_player.media_seek
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                      data:
-                        seek_position: "{{ seek_to }}"
-                      continue_on_error: true
-                    # Warten, bis Music Assistant den Stream neu gestartet hat und die
-                    # neue Position meldet. Sonst kommt die Pause zu früh und die alte
-                    # Position landet in Audiobookshelf.
-                    - wait_template: >
-                        {% set ns = namespace(ok=false) %}
-                        {% for c in candidates %}
-                          {% set pos = state_attr(c, 'media_position') %}
-                          {% set updated = state_attr(c, 'media_position_updated_at') %}
-                          {% if pos is number and updated and is_state(c, 'playing')
-                                and as_datetime(updated | string) > as_datetime(seek_started)
-                                and pos <= seek_to | int + 10 %}
-                            {% set ns.ok = true %}
-                          {% endif %}
-                        {% endfor %}
-                        {{ ns.ok }}
-                      timeout:
-                        seconds: 5
-                      continue_on_timeout: true
-          - action: media_player.media_pause
-            target:
-              entity_id: "{{ targets }}"
-            continue_on_error: true
+          # Zurückspulen über Audiobookshelf statt über Music Assistant: Music Assistant meldet
+          # nach einem Sprung beim Pausieren eine falsche, zu weit vorne liegende Position.
+          # Nur wenn wirklich etwas läuft, sonst würde ein zweites Stoppen erneut zurückspulen
           - if:
-              - condition: trigger
-                id: stop
+              - condition: template
+                value_template: "{{ rewind_seconds | int > 0 and targets | select('is_state', 'playing') | list | count > 0 }}"
             then:
-              - set_conversation_response: Okay, Hörbuch gestoppt.
-          # Kurz warten, damit Music Assistant die Position an Audiobookshelf meldet
-          - delay:
-              seconds: 2
-          - action: media_player.clear_playlist
-            target:
-              entity_id: "{{ targets }}"
-            continue_on_error: true
+              # Audiobookshelf-Position vor dem Pausieren lesen. Music Assistant meldet sie dort
+              # etwa alle 30 Sekunden, sie liegt also nie vor der gehörten Stelle.
+              - action: rest_command.audiobookshelf_in_progress
+                response_variable: abs_list
+                continue_on_error: true
+              - variables:
+                  rewind_item: >
+                    {% set content = abs_list.content if abs_list is defined and abs_list.status | default(0) == 200 and abs_list.content is mapping else {} %}
+                    {% set books = content.get('libraryItems', []) | selectattr('mediaType', 'eq', 'book')
+                         | selectattr('progressLastUpdate', 'defined') | sort(attribute='progressLastUpdate', reverse=true) | list %}
+                    {{ books[0].id if books | count > 0 else '' }}
+              - action: rest_command.audiobookshelf_get_progress
+                data:
+                  item_id: "{{ rewind_item if rewind_item | length > 0 else 'kein-buch' }}"
+                response_variable: abs_progress
+                continue_on_error: true
+              - variables:
+                  # Gehörte Stelle schätzen: letzte Meldung plus die Zeit seither (höchstens
+                  # 30 Sekunden, damit nie nach vorne gesprungen wird), dann zurückspulen.
+                  rewind_target: >
+                    {% set p = abs_progress.content if rewind_item | length > 0 and abs_progress is defined
+                         and abs_progress.status | default(0) == 200 and abs_progress.content is mapping else {} %}
+                    {% set t = p.get('currentTime') %}
+                    {% if t is number and t >= 0 %}
+                      {% set age = (now().timestamp() * 1000 - p.get('lastUpdate', 0) | float(0)) / 1000 %}
+                      {% set heard = t + ([[age, 0] | max, 30] | min) %}
+                      {{ [heard - rewind_seconds | int, 0] | max | round(0) | int }}
+                    {% else %}
+                      -1
+                    {% endif %}
+              - action: media_player.media_pause
+                target:
+                  entity_id: "{{ targets }}"
+                continue_on_error: true
+              - if:
+                  - condition: trigger
+                    id: stop
+                then:
+                  - set_conversation_response: Okay, Hörbuch gestoppt.
+              # Kurz warten, damit Music Assistant die Position an Audiobookshelf meldet
+              - delay:
+                  seconds: 2
+              - action: media_player.clear_playlist
+                target:
+                  entity_id: "{{ targets }}"
+                continue_on_error: true
+              # Warten, bis Music Assistant seine letzte Meldung an Audiobookshelf geschickt hat,
+              # dann die zurückgespulte Position in Audiobookshelf setzen.
+              - delay:
+                  seconds: 3
+              - if:
+                  - condition: template
+                    value_template: "{{ rewind_target | int >= 0 }}"
+                then:
+                  - action: rest_command.audiobookshelf_set_progress
+                    data:
+                      item_id: "{{ rewind_item }}"
+                      current_time: "{{ rewind_target | int }}"
+                    continue_on_error: true
+                else:
+                  - action: persistent_notification.create
+                    data:
+                      notification_id: audiobook_play
+                      title: Hörbuch vorlesen
+                      message: >
+                        Nicht zurückgespult: Audiobookshelf hat keine Position geliefert. Prüfe die
+                        rest_commands audiobookshelf_in_progress und audiobookshelf_get_progress.
+            else:
+              - action: media_player.media_pause
+                target:
+                  entity_id: "{{ targets }}"
+                continue_on_error: true
+              - if:
+                  - condition: trigger
+                    id: stop
+                then:
+                  - set_conversation_response: Okay, Hörbuch gestoppt.
+              # Kurz warten, damit Music Assistant die Position an Audiobookshelf meldet
+              - delay:
+                  seconds: 2
+              - action: media_player.clear_playlist
+                target:
+                  entity_id: "{{ targets }}"
+                continue_on_error: true
     # Hörbuch starten
     default:
       - action: rest_command.audiobookshelf_in_progress

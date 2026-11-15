@@ -121,7 +121,31 @@ A blueprint cannot call an HTTP API on its own, so you add a `rest_command` to `
 
 The token belongs to one Audiobookshelf user. Use the user whose progress you want to follow.
 
-Playback starts with `enqueue: replace`, so an old Music Assistant queue is replaced. Stopping first rewinds 30 seconds (input "Zurückspulen"), so you hear the last part again when you continue. The blueprint waits until Music Assistant has restarted the stream at the new position (at most 5 seconds), so you may briefly hear the rewound audio before the pause. It then pauses playback, waits 2 seconds so Music Assistant can report the position to Audiobookshelf, then clears the queue. The book can then continue on another device without an outdated position on the Voice PE. The sleep timer can start this automation through the `audiobook_play` event (see below).
+**Optional: rewind on stop.** To hear the last part again when you continue, add two more commands and set the input "Zurückspulen" (e.g. 30 s) in both audiobook automations:
+
+```yaml
+rest_command:
+  audiobookshelf_in_progress:
+    # as above
+  audiobookshelf_get_progress:
+    url: "http://audiobookshelf.example.lan:13378/api/me/progress/{{ item_id }}"
+    method: GET
+    headers:
+      Authorization: !secret abs_token
+  audiobookshelf_set_progress:
+    url: "http://audiobookshelf.example.lan:13378/api/me/progress/{{ item_id }}"
+    method: PATCH
+    headers:
+      Authorization: !secret abs_token
+      Content-Type: application/json
+    payload: '{"currentTime": {{ current_time }}}'
+```
+
+"Zurückspulen" is off (0) by default, because a missing `rest_command` stops the automation with an error. Leave it at 0 if you don't add these commands.
+
+How it works: before pausing, the blueprint reads the book's position from Audiobookshelf. Music Assistant reports it there about every 30 seconds, so it is never ahead of what you heard. The blueprint adds the time since that report (at most 30 seconds) to estimate where you are. After stopping, it sets the position in Audiobookshelf to that estimate minus the rewind time. It does not seek in Music Assistant: after a seek, Music Assistant reported a position that was too far ahead, so the book skipped forward on the next start. If Audiobookshelf returns no position, the stop still works and a notification explains why there was no rewind.
+
+Playback starts with `enqueue: replace`, so an old Music Assistant queue is replaced. Stopping pauses playback, waits 2 seconds so Music Assistant can report the position to Audiobookshelf, then clears the queue. The book can then continue on another device without an outdated position on the Voice PE. The sleep timer can start this automation through the `audiobook_play` event (see below).
 
 **Which player?** Same as the sleep timer: without fixed players, the blueprint uses the Music Assistant player in the area of the voice device that heard the command.
 
@@ -132,7 +156,7 @@ Music Assistant creates its own device for each player, separate from the Voice 
 | Input        | Default | Description                                                                 |
 | ------------ | ------- | --------------------------------------------------------------------------- |
 | Feste Player | empty   | Music Assistant players to always use. Empty = the player in the device's area |
-| Zurückspulen | 30 s    | Rewind this far before pausing, so the last part is repeated when you continue (0 = off) |
+| Zurückspulen | 0 s     | Rewind this far on stop, so the last part is repeated when you continue. Needs the two extra rest_commands (0 = off) |
 | Start-Lautstärke | 0 % | Volume to set when the book starts (0 = leave unchanged) |
 
 **Start volume.** With "Start-Lautstärke" set, the volume is set before playback starts and once more as soon as the player plays (a Music Assistant group that is off may ignore the first one). The voice response can then take a moment longer. For a group, Music Assistant scales the rooms relative to each other, so 30 % on the group does not mean 30 % in every room.
@@ -257,7 +281,7 @@ audiobook_sleep_timer_cancel:
 | Ausblendzeit  | 60 s    | How long the volume fades out before pausing (0 = no fade)       |
 | Hörbuch starten, wenn nichts läuft | off | Start the current book via "Hörbuch vorlesen" if nothing plays |
 | Warteschlange leeren | on | Clear the Music Assistant queue after pausing |
-| Zurückspulen | 30 s | Rewind this far before pausing (after the fade-out, so it is silent; 0 = off) |
+| Zurückspulen | 0 s | Rewind this far when the timer pauses. Same Audiobookshelf mechanism and rest_commands as "Hörbuch vorlesen" (0 = off) |
 | Lautstärke im Schlafmodus | 0 % | Lower to this volume when the timer is set (never raises it); a book started by the timer starts at this volume (0 = leave unchanged) |
 
 **Requirements**
