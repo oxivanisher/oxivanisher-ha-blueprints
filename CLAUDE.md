@@ -34,6 +34,8 @@ Share fully local, German-language voice automations for Home Assistant Assist a
 
 ## Gotchas
 
+- Rewind can jump forward if the position is overestimated: `media_position + (now - media_position_updated_at)` overshoots when the timestamp is stale (e.g. a group member's position from an earlier session). The blueprints now read `elapsed_time` from `music_assistant.get_queue` first, fall back to attributes only if their timestamp is at most 5 min old, drop positions past the item's duration, and never seek past the last reported position (`seek_to <= raw`). The owner saw occasional forward skips before this; not yet confirmed fixed.
+
 - Rewind before pause: an MA group entity may not report `media_position`, so the position falls back to a member's. After `media_seek`, MA restarts the stream (1.5 to 2 s in the owner's logs). The blueprints wait (max 5 s) until a fresh `media_position_updated_at` near the seek target is reported before pausing; a fixed 1 s delay paused too early.
 
 - Renaming an input key is a breaking change: existing automations lose that input's value and must be reconfigured. Event names and event data are public API (dashboard scripts, Node-RED, REST, `examples/audiobook.sh`). Both were renamed to English once (see README "Upgrading"); avoid further renames.

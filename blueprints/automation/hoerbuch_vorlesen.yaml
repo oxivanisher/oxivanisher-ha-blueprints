@@ -207,25 +207,51 @@ actions:
           - repeat:
               for_each: "{{ targets | select('is_state', 'playing') | list if rewind_seconds | int > 0 else [] }}"
               sequence:
+                # Position zuerst aus der Warteschlange von Music Assistant holen
+                - action: music_assistant.get_queue
+                  target:
+                    entity_id: "{{ repeat.item }}"
+                  response_variable: queue_response
+                  continue_on_error: true
                 - variables:
-                    # Meldet eine Gruppe keine Position, wird die eines Mitglieds verwendet
+                    queue: >
+                      {{ queue_response.get(repeat.item, {}) if queue_response is defined and queue_response is mapping else {} }}
+                    # Ersatzweise die Attribute des Players oder eines Gruppenmitglieds
                     candidates: >
                       {{ [repeat.item] + ((state_attr(repeat.item, 'group_members') or []) | reject('eq', repeat.item) | list) }}
-                    position: >
-                      {% set ns = namespace(pos=-1) %}
-                      {% for c in candidates if ns.pos < 0 %}
-                        {% set pos = state_attr(c, 'media_position') %}
-                        {% set updated = state_attr(c, 'media_position_updated_at') %}
-                        {% if pos is number and updated %}
-                          {% set ns.pos = pos + ((now() - as_datetime(updated | string)).total_seconds() if is_state(c, 'playing') else 0) %}
-                        {% endif %}
-                      {% endfor %}
-                      {{ ns.pos }}
-                    seek_to: "{{ [position | float(0) - rewind_seconds | int, 0] | max | round(0) | int }}"
+                    # raw: zuletzt gemeldete Position (nie weiter als die echte Stelle),
+                    # est: hochgerechnete aktuelle Position, dur: Länge des Titels
+                    pos_info: >
+                      {% set ns = namespace(raw=-1, est=-1, dur=0) %}
+                      {% set elapsed = queue.get('elapsed_time') %}
+                      {% if elapsed is number and elapsed >= 0 %}
+                        {% set ns.raw = elapsed %}
+                        {% set ns.est = elapsed %}
+                        {% set ns.dur = (queue.get('current_item') or {}).get('duration') | float(0) %}
+                      {% else %}
+                        {% for c in candidates if ns.raw < 0 %}
+                          {% set pos = state_attr(c, 'media_position') %}
+                          {% set updated = state_attr(c, 'media_position_updated_at') %}
+                          {% if pos is number and updated %}
+                            {% set age = (now() - as_datetime(updated | string)).total_seconds() %}
+                            {# Veraltete Werte, z.B. von einer früheren Wiedergabe, ignorieren #}
+                            {% if 0 <= age <= 300 %}
+                              {% set ns.raw = pos %}
+                              {% set ns.est = pos + (age if is_state(c, 'playing') else 0) %}
+                              {% set ns.dur = state_attr(c, 'media_duration') | float(0) %}
+                            {% endif %}
+                          {% endif %}
+                        {% endfor %}
+                      {% endif %}
+                      {% if ns.dur > 0 and ns.raw > ns.dur + 5 %}{% set ns.raw = -1 %}{% endif %}
+                      {{ {'raw': ns.raw, 'est': ns.est} }}
+                    # Nie nach vorne springen: höchstens bis zur zuletzt gemeldeten Position
+                    seek_to: >
+                      {{ [[pos_info.est | float(0) - rewind_seconds | int, pos_info.raw | float(0)] | min, 0] | max | round(0) | int }}
                     seek_started: "{{ now().isoformat() }}"
                 - if:
                     - condition: template
-                      value_template: "{{ position | float(-1) >= 0 }}"
+                      value_template: "{{ pos_info.raw | float(-1) >= 0 }}"
                   then:
                     - action: media_player.media_seek
                       target:
