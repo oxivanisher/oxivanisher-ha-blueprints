@@ -195,14 +195,21 @@ actions:
               for_each: "{{ targets | select('is_state', 'playing') | list if rewind_seconds | int > 0 else [] }}"
               sequence:
                 - variables:
+                    # Meldet eine Gruppe keine Position, wird die eines Mitglieds verwendet
+                    candidates: >
+                      {{ [repeat.item] + ((state_attr(repeat.item, 'group_members') or []) | reject('eq', repeat.item) | list) }}
                     position: >
-                      {% set pos = state_attr(repeat.item, 'media_position') %}
-                      {% set updated = state_attr(repeat.item, 'media_position_updated_at') %}
-                      {% if pos is number and updated %}
-                        {{ pos + (now() - as_datetime(updated | string)).total_seconds() }}
-                      {% else %}
-                        -1
-                      {% endif %}
+                      {% set ns = namespace(pos=-1) %}
+                      {% for c in candidates if ns.pos < 0 %}
+                        {% set pos = state_attr(c, 'media_position') %}
+                        {% set updated = state_attr(c, 'media_position_updated_at') %}
+                        {% if pos is number and updated %}
+                          {% set ns.pos = pos + ((now() - as_datetime(updated | string)).total_seconds() if is_state(c, 'playing') else 0) %}
+                        {% endif %}
+                      {% endfor %}
+                      {{ ns.pos }}
+                    seek_to: "{{ [position | float(0) - rewind_seconds | int, 0] | max | round(0) | int }}"
+                    seek_started: "{{ now().isoformat() }}"
                 - if:
                     - condition: template
                       value_template: "{{ position | float(-1) >= 0 }}"
@@ -211,10 +218,26 @@ actions:
                       target:
                         entity_id: "{{ repeat.item }}"
                       data:
-                        seek_position: "{{ [position | float - rewind_seconds | int, 0] | max | round(0) | int }}"
+                        seek_position: "{{ seek_to }}"
                       continue_on_error: true
-          - delay:
-              seconds: "{{ 1 if rewind_seconds | int > 0 else 0 }}"
+                    # Warten, bis Music Assistant den Stream neu gestartet hat und die
+                    # neue Position meldet. Sonst kommt die Pause zu früh und die alte
+                    # Position landet in Audiobookshelf.
+                    - wait_template: >
+                        {% set ns = namespace(ok=false) %}
+                        {% for c in candidates %}
+                          {% set pos = state_attr(c, 'media_position') %}
+                          {% set updated = state_attr(c, 'media_position_updated_at') %}
+                          {% if pos is number and updated and is_state(c, 'playing')
+                                and as_datetime(updated | string) > as_datetime(seek_started)
+                                and pos <= seek_to | int + 10 %}
+                            {% set ns.ok = true %}
+                          {% endif %}
+                        {% endfor %}
+                        {{ ns.ok }}
+                      timeout:
+                        seconds: 5
+                      continue_on_timeout: true
           - action: media_player.media_pause
             target:
               entity_id: "{{ targets }}"

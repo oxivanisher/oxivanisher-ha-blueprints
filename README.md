@@ -121,7 +121,7 @@ A blueprint cannot call an HTTP API on its own, so you add a `rest_command` to `
 
 The token belongs to one Audiobookshelf user. Use the user whose progress you want to follow.
 
-Playback starts with `enqueue: replace`, so an old Music Assistant queue is replaced. Stopping first rewinds 30 seconds (input "Zurückspulen"), so you hear the last part again when you continue. You may hear that second of rewound audio before the pause. It then pauses playback, waits 2 seconds so Music Assistant can report the position to Audiobookshelf, then clears the queue. The book can then continue on another device without an outdated position on the Voice PE. The sleep timer can start this automation through the `audiobook_play` event (see below).
+Playback starts with `enqueue: replace`, so an old Music Assistant queue is replaced. Stopping first rewinds 30 seconds (input "Zurückspulen"), so you hear the last part again when you continue. The blueprint waits until Music Assistant has restarted the stream at the new position (at most 5 seconds), so you may briefly hear the rewound audio before the pause. It then pauses playback, waits 2 seconds so Music Assistant can report the position to Audiobookshelf, then clears the queue. The book can then continue on another device without an outdated position on the Voice PE. The sleep timer can start this automation through the `audiobook_play` event (see below).
 
 **Which player?** Same as the sleep timer: without fixed players, the blueprint uses the Music Assistant player in the area of the voice device that heard the command.
 
