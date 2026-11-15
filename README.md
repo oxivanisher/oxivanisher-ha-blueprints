@@ -96,7 +96,7 @@ Reads your current audiobook aloud, by voice, and picks up where you left off, e
 
 **One-time setup: Audiobookshelf API access**
 
-A blueprint cannot call an HTTP API on its own, so you add a `rest_command` to `configuration.yaml` once. The blueprint expects it under the name `abs_hoerbuecher`.
+A blueprint cannot call an HTTP API on its own, so you add a `rest_command` to `configuration.yaml` once. The blueprint expects it under the name `audiobookshelf_in_progress`.
 
 1. In Audiobookshelf, open **Settings → Users**, click your user and copy the API token. On newer versions you can also create an API key under **Settings → API Keys**.
 2. Add the token to `secrets.yaml`, including the word `Bearer`:
@@ -109,7 +109,7 @@ A blueprint cannot call an HTTP API on its own, so you add a `rest_command` to `
 
    ```yaml
    rest_command:
-     abs_hoerbuecher:
+     audiobookshelf_in_progress:
        url: "http://audiobookshelf.example.lan:13378/api/me/items-in-progress"
        method: GET
        headers:
@@ -117,11 +117,11 @@ A blueprint cannot call an HTTP API on its own, so you add a `rest_command` to `
    ```
 
 4. Restart Home Assistant (or reload "REST commands" under Developer tools → YAML).
-5. Test it under **Developer tools → Actions**: run `rest_command.abs_hoerbuecher` and check that the response lists your book under `content.libraryItems`.
+5. Test it under **Developer tools → Actions**: run `rest_command.audiobookshelf_in_progress` and check that the response lists your book under `content.libraryItems`.
 
 The token belongs to one Audiobookshelf user. Use the user whose progress you want to follow.
 
-Playback starts with `enqueue: replace`, so an old Music Assistant queue is replaced. Stopping first rewinds 30 seconds (input "Zurückspulen"), so you hear the last part again when you continue. You may hear that second of rewound audio before the pause. It then pauses playback, waits 2 seconds so Music Assistant can report the position to Audiobookshelf, then clears the queue. The book can then continue on another device without an outdated position on the Voice PE. The sleep timer can start this automation through the `hoerbuch_vorlesen` event (see below).
+Playback starts with `enqueue: replace`, so an old Music Assistant queue is replaced. Stopping first rewinds 30 seconds (input "Zurückspulen"), so you hear the last part again when you continue. You may hear that second of rewound audio before the pause. It then pauses playback, waits 2 seconds so Music Assistant can report the position to Audiobookshelf, then clears the queue. The book can then continue on another device without an outdated position on the Voice PE. The sleep timer can start this automation through the `audiobook_play` event (see below).
 
 **Which player?** Same as the sleep timer: without fixed players, the blueprint uses the Music Assistant player in the area of the voice device that heard the command.
 
@@ -136,53 +136,53 @@ Music Assistant creates its own device for each player, separate from the Voice 
 
 **Speaker groups.** To listen in every room at once, create a group player in Music Assistant and set it as "Feste Player". Starting then plays on the group. Stopping also handles groups: if a playing Music Assistant group contains the target player, the whole group is paused, not just one speaker.
 
-**Dashboard buttons.** The automation also listens for the `hoerbuch_vorlesen` event, with this data:
+**Dashboard buttons.** The automation also listens for the `audiobook_play` event, with this data:
 
 | Field    | Default        | Description                                    |
 | -------- | -------------- | ---------------------------------------------- |
-| `aktion` | `start`        | `start`, `stopp` or `umschalten` (toggle: stop if the player or its group is playing, otherwise start) |
-| `player` | "Feste Player" | List of Music Assistant players to use instead |
+| `action` | `start`        | `start`, `stop` or `toggle` (toggle: stop if the player or its group is playing, otherwise start) |
+| `players` | "Feste Player" | List of Music Assistant players to use instead |
 
 A dashboard cannot fire events directly, so add these scripts (Settings → Automations & scenes → Scripts, or `scripts.yaml`):
 
 ```yaml
-hoerbuch_start:
+audiobook_start:
   alias: Hörbuch starten
   icon: mdi:book-play
   sequence:
-    - event: hoerbuch_vorlesen
+    - event: audiobook_play
       event_data:
-        aktion: start
+        action: start
 
-hoerbuch_stopp:
+audiobook_stop:
   alias: Hörbuch stoppen
   icon: mdi:book-cancel
   sequence:
-    - event: hoerbuch_vorlesen
+    - event: audiobook_play
       event_data:
-        aktion: stopp
+        action: stop
 
 # Optional: one button for both
-hoerbuch_umschalten:
+audiobook_toggle:
   alias: Hörbuch an/aus
   icon: mdi:book-music
   sequence:
-    - event: hoerbuch_vorlesen
+    - event: audiobook_play
       event_data:
-        aktion: umschalten
+        action: toggle
 ```
 
-Without `player`, the automation's "Feste Player" are used (e.g. your group). To target another player, add `player: [media_player.kueche]` to `event_data`. Then add the scripts to a dashboard, e.g. as a button card:
+Without `players`, the automation's "Feste Player" are used (e.g. your group). To target another player, add `players: [media_player.kueche]` to `event_data`. Then add the scripts to a dashboard, e.g. as a button card:
 
 ```yaml
 type: button
-entity: script.hoerbuch_umschalten
+entity: script.audiobook_toggle
 tap_action:
   action: perform-action
-  perform_action: script.hoerbuch_umschalten
+  perform_action: script.audiobook_toggle
 ```
 
-Without "Feste Player" and without `player` in the event, the automation has no voice device to pick a player from. Nothing plays, and the error is reported (see [Errors](#errors-from-buttons-node-red-and-the-api)). For Node-RED and the REST API, see [Control from Node-RED and the REST API](#control-from-node-red-and-the-rest-api).
+Without "Feste Player" and without `players` in the event, the automation has no voice device to pick a player from. Nothing plays, and the error is reported (see [Errors](#errors-from-buttons-node-red-and-the-api)). For Node-RED and the REST API, see [Control from Node-RED and the REST API](#control-from-node-red-and-the-rest-api).
 
 **Limitations**
 
@@ -208,39 +208,39 @@ A voice sleep timer for audiobooks (e.g. Audiobookshelf via Music Assistant). It
 
 **Which player?** If you leave "Feste Player" empty, the blueprint takes the media players in the same area as the voice device that heard the command. Music Assistant players are preferred, and among those the ones currently playing. So assign each Voice PE and its Music Assistant player to the same area. Without that, the same name-based fallback as in "Hörbuch vorlesen" applies.
 
-**Together with "Hörbuch vorlesen".** If you turn on "Hörbuch starten, wenn nichts läuft" and nothing is playing when you set the timer, the sleep timer fires the `hoerbuch_vorlesen` event. The "Hörbuch vorlesen" automation then starts the current book. If that fails (for example, no book in progress), the error is announced on the voice device. This needs an automation created from the "Hörbuch vorlesen" blueprint.
+**Together with "Hörbuch vorlesen".** If you turn on "Hörbuch starten, wenn nichts läuft" and nothing is playing when you set the timer, the sleep timer fires the `audiobook_play` event. The "Hörbuch vorlesen" automation then starts the current book. If that fails (for example, no book in progress), the error is announced on the voice device. This needs an automation created from the "Hörbuch vorlesen" blueprint.
 
 **Clearing the queue.** After pausing, the sleep timer clears the player's Music Assistant queue (input "Warteschlange leeren", on by default). If you then keep listening on another device, the Voice PE does not hold on to an outdated position. The next "Lies mir weiter vor" fetches the current position from Audiobookshelf.
 
 **Speaker groups.** If the chosen player belongs to a Music Assistant group that is currently playing, the timer acts on the whole group. For example, if the book plays in all rooms and you set the timer by voice in the bedroom, all rooms fade out and stop together. You can also set your group as "Feste Player" in the sleep timer automation. The two automations have separate inputs, so a group set in "Hörbuch vorlesen" does not carry over.
 
-**Dashboard buttons.** The sleep timer listens for the `hoerbuch_schlaftimer_stellen` event:
+**Dashboard buttons.** The sleep timer listens for the `audiobook_sleep_timer` event:
 
 | Field     | Default                 | Description                                    |
 | --------- | ----------------------- | ---------------------------------------------- |
-| `aktion`  | `start`                 | `start` or `abbrechen`                         |
-| `minuten` | "Standarddauer"         | Timer length in minutes                        |
-| `player`  | see below               | List of media players to use instead           |
+| `action`  | `start`                 | `start` or `cancel`                            |
+| `minutes` | "Standarddauer"         | Timer length in minutes                        |
+| `players` | see below               | List of media players to use instead           |
 | `device`  | none                    | Voice device on which errors are also announced |
 
-Which player is used: `player` from the event, otherwise "Feste Player". If neither is set, the timer uses the Music Assistant players that are currently playing (members of a playing group are left out, so only the group is faded). "Hörbuch starten, wenn nichts läuft" and "Warteschlange leeren" work as with voice commands.
+Which player is used: `players` from the event, otherwise "Feste Player". If neither is set, the timer uses the Music Assistant players that are currently playing (members of a playing group are left out, so only the group is faded). "Hörbuch starten, wenn nichts läuft" and "Warteschlange leeren" work as with voice commands.
 
 ```yaml
-hoerbuch_schlaftimer:
+audiobook_sleep_timer:
   alias: Hörbuch-Schlaftimer
   icon: mdi:sleep
   sequence:
-    - event: hoerbuch_schlaftimer_stellen
+    - event: audiobook_sleep_timer
       event_data:
-        aktion: start    # add "minuten: 45" for a different length
+        action: start    # add "minutes: 45" for a different length
 
-hoerbuch_schlaftimer_abbrechen:
+audiobook_sleep_timer_cancel:
   alias: Schlaftimer abbrechen
   icon: mdi:sleep-off
   sequence:
-    - event: hoerbuch_schlaftimer_stellen
+    - event: audiobook_sleep_timer
       event_data:
-        aktion: abbrechen
+        action: cancel
 ```
 
 **Inputs**
@@ -268,16 +268,16 @@ hoerbuch_schlaftimer_abbrechen:
 
 Both audiobook blueprints are controlled by Home Assistant events, so anything that can fire an event can use them:
 
-| Event                          | Data                                             | Blueprint          |
-| ------------------------------ | ------------------------------------------------ | ------------------ |
-| `hoerbuch_vorlesen`            | `aktion` (`start`/`stopp`/`umschalten`), `player`, `device` | Hörbuch vorlesen   |
-| `hoerbuch_schlaftimer_stellen` | `aktion` (`start`/`abbrechen`), `minuten`, `player`, `device` | Hörbuch-Schlaftimer |
+| Event                   | Data                                                        | Blueprint           |
+| ----------------------- | ----------------------------------------------------------- | ------------------- |
+| `audiobook_play`        | `action` (`start`/`stop`/`toggle`), `players`, `device`     | Hörbuch vorlesen    |
+| `audiobook_sleep_timer` | `action` (`start`/`cancel`), `minutes`, `players`, `device` | Hörbuch-Schlaftimer |
 
 All fields are optional. See the blueprint sections above for the defaults.
 
 **Create only one automation per blueprint.** Every automation made from a blueprint reacts to these events. With several "Hörbuch vorlesen" automations, one event starts the book several times. Voice commands hide this, because Assist hands a sentence to only one automation. To update a blueprint, re-import it; existing automations pick up the new version, so don't create a new one afterwards. To find duplicates, open the blueprint's ⋮ menu → **Show automations using this blueprint**.
 
-**Node-RED** (with `node-red-contrib-home-assistant-websocket`): use a **Fire Event** node. Set the event to e.g. `hoerbuch_vorlesen` with data `{"aktion": "umschalten"}`, or `hoerbuch_schlaftimer_stellen` with `{"aktion": "start", "minuten": 20}`. Alternatively, call the dashboard scripts with an **Action** node.
+**Node-RED** (with `node-red-contrib-home-assistant-websocket`): use a **Fire Event** node. Set the event to e.g. `audiobook_play` with data `{"action": "toggle"}`, or `audiobook_sleep_timer` with `{"action": "start", "minutes": 20}`. Alternatively, call the dashboard scripts with an **Action** node.
 
 **REST API:** create a long-lived access token in Home Assistant (your profile → **Security** → **Long-lived access tokens**). Then POST the event data to `/api/events/<event>`:
 
@@ -286,36 +286,36 @@ TOKEN="your long-lived token"
 HA="http://homeassistant.example.lan:8123"
 
 # Start the book
-curl -X POST "$HA/api/events/hoerbuch_vorlesen" \
+curl -X POST "$HA/api/events/audiobook_play" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"aktion": "start"}'
+  -d '{"action": "start"}'
 
 # Stop the book
-curl -X POST "$HA/api/events/hoerbuch_vorlesen" \
+curl -X POST "$HA/api/events/audiobook_play" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"aktion": "stopp"}'
+  -d '{"action": "stop"}'
 
 # Toggle: stop if playing, otherwise start
-curl -X POST "$HA/api/events/hoerbuch_vorlesen" \
+curl -X POST "$HA/api/events/audiobook_play" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"aktion": "umschalten"}'
+  -d '{"action": "toggle"}'
 
 # Sleep timer with the default length, or with 20 minutes
-curl -X POST "$HA/api/events/hoerbuch_schlaftimer_stellen" \
+curl -X POST "$HA/api/events/audiobook_sleep_timer" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{}'
-curl -X POST "$HA/api/events/hoerbuch_schlaftimer_stellen" \
+curl -X POST "$HA/api/events/audiobook_sleep_timer" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"minuten": 20}'
+  -d '{"minutes": 20}'
 ```
 
-**Shell script:** [examples/hoerbuch.sh](examples/hoerbuch.sh) wraps these calls. Set `HA_URL` and `HA_TOKEN` as environment variables or in `~/.config/hoerbuch.env`, then run:
+**Shell script:** [examples/audiobook.sh](examples/audiobook.sh) wraps these calls. Set `HA_URL` and `HA_TOKEN` as environment variables or in `~/.config/audiobook.env`, then run:
 
 ```bash
-hoerbuch.sh start | stop | toggle
-hoerbuch.sh sleep          # default length
-hoerbuch.sh sleep 20       # 20 minutes
-hoerbuch.sh sleep cancel
+audiobook.sh start | stop | toggle
+audiobook.sh sleep          # default length
+audiobook.sh sleep 20       # 20 minutes
+audiobook.sh sleep cancel
 ```
 
 Optionally set `HA_PLAYER=media_player.wohnung` (comma-separated for several) to override the automations' "Feste Player". The script exits with an error if Home Assistant rejects the request.
@@ -327,10 +327,30 @@ The API answers right away with `{"message": "Event ... fired."}`, which only me
 Voice commands answer by voice. Events have nobody to answer to, so problems are reported in three ways:
 
 - A **notification** in Home Assistant (bell icon in the sidebar). A newer message replaces the older one.
-- A `hoerbuch_fehler` **event** with `quelle` (the automation) and `meldung` (the text). Listen for it in Node-RED, e.g. to send a push message.
+- A `audiobook_error` **event** with `source` (the automation) and `message` (the text). Listen for it in Node-RED, e.g. to send a push message.
 - An **announcement** on the voice device, if the event contained `device`.
 
 Reported errors include: no player found, Audiobookshelf not answering, no book in progress, an invalid sleep timer length, and a sleep timer set while nothing plays (when "Hörbuch starten, wenn nichts läuft" is off).
+
+## Upgrading from earlier versions
+
+Internal names (inputs, events, event data) were renamed to English. User-facing texts and voice commands are still German. After re-importing the blueprints:
+
+1. **Inputs:** open each automation made from these blueprints and set its inputs again. The old values are not carried over, because the input keys changed.
+2. **rest_command:** rename `abs_hoerbuecher` to `audiobookshelf_in_progress` in `configuration.yaml` and reload REST commands.
+3. **Scripts, Node-RED, API calls:** update events and event data.
+
+| Old                                  | New                                      |
+| ------------------------------------ | ---------------------------------------- |
+| event `hoerbuch_vorlesen`            | `audiobook_play`                         |
+| event `hoerbuch_schlaftimer_stellen` | `audiobook_sleep_timer`                  |
+| event `hoerbuch_fehler`              | `audiobook_error`                        |
+| `aktion`                             | `action`                                 |
+| `stopp` / `umschalten` / `abbrechen` | `stop` / `toggle` / `cancel`             |
+| `minuten`                            | `minutes`                                |
+| `player`                             | `players`                                |
+| `quelle` / `meldung` (error event)   | `source` / `message`                     |
+| `examples/hoerbuch.sh`, `hoerbuch.env` | `examples/audiobook.sh`, `audiobook.env` |
 
 ## License
 

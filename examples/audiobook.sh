@@ -3,11 +3,11 @@
 # Home Assistant REST API.
 #
 # Usage:
-#   hoerbuch.sh start | stop | toggle
-#   hoerbuch.sh sleep [MINUTES]   # default length from the blueprint if omitted
-#   hoerbuch.sh sleep cancel
+#   audiobook.sh start | stop | toggle
+#   audiobook.sh sleep [MINUTES]   # default length from the blueprint if omitted
+#   audiobook.sh sleep cancel
 #
-# Configuration (environment variables, or put them in ~/.config/hoerbuch.env):
+# Configuration (environment variables, or put them in ~/.config/audiobook.env):
 #   HA_URL    e.g. http://homeassistant.example.lan:8123
 #   HA_TOKEN  a long-lived access token (profile -> Security)
 #   HA_PLAYER optional, comma-separated players instead of the automation's
@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-config="${XDG_CONFIG_HOME:-$HOME/.config}/hoerbuch.env"
+config="${XDG_CONFIG_HOME:-$HOME/.config}/audiobook.env"
 # shellcheck source=/dev/null
 [[ -f "$config" ]] && source "$config"
 
@@ -32,7 +32,7 @@ fire() {
   if [[ -n "${HA_PLAYER:-}" ]]; then
     local players
     players=$(printf '"%s",' ${HA_PLAYER//,/ })
-    data="${data%\}}, \"player\": [${players%,}]}"
+    data="${data%\}}, \"players\": [${players%,}]}"
   fi
   curl -fsS -X POST "${HA_URL%/}/api/events/$event" \
     -H "Authorization: Bearer $HA_TOKEN" \
@@ -42,15 +42,15 @@ fire() {
 }
 
 case "${1:-}" in
-  start)  fire hoerbuch_vorlesen '{"aktion": "start"}' ;;
-  stop)   fire hoerbuch_vorlesen '{"aktion": "stopp"}' ;;
-  toggle) fire hoerbuch_vorlesen '{"aktion": "umschalten"}' ;;
+  start)  fire audiobook_play '{"action": "start"}' ;;
+  stop)   fire audiobook_play '{"action": "stop"}' ;;
+  toggle) fire audiobook_play '{"action": "toggle"}' ;;
   sleep)
     case "${2:-}" in
-      "")      fire hoerbuch_schlaftimer_stellen '{"aktion": "start"}' ;;
-      cancel)  fire hoerbuch_schlaftimer_stellen '{"aktion": "abbrechen"}' ;;
+      "")      fire audiobook_sleep_timer '{"action": "start"}' ;;
+      cancel)  fire audiobook_sleep_timer '{"action": "cancel"}' ;;
       *[!0-9]*) usage ;;
-      *)       fire hoerbuch_schlaftimer_stellen "{\"aktion\": \"start\", \"minuten\": $2}" ;;
+      *)       fire audiobook_sleep_timer "{\"action\": \"start\", \"minutes\": $2}" ;;
     esac
     ;;
   *) usage ;;
