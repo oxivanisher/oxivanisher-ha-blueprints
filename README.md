@@ -121,7 +121,7 @@ A blueprint cannot call an HTTP API on its own, so you add a `rest_command` to `
 
 The token belongs to one Audiobookshelf user. Use the user whose progress you want to follow.
 
-Playback starts with `enqueue: replace`, so an old Music Assistant queue is replaced. Stopping pauses playback, waits 2 seconds so Music Assistant can report the position to Audiobookshelf, then clears the queue. The book can then continue on another device without an outdated position on the Voice PE. The sleep timer can start this automation through the `hoerbuch_vorlesen` event (see below).
+Playback starts with `enqueue: replace`, so an old Music Assistant queue is replaced. Stopping first rewinds 30 seconds (input "Zurückspulen"), so you hear the last part again when you continue. You may hear that second of rewound audio before the pause. It then pauses playback, waits 2 seconds so Music Assistant can report the position to Audiobookshelf, then clears the queue. The book can then continue on another device without an outdated position on the Voice PE. The sleep timer can start this automation through the `hoerbuch_vorlesen` event (see below).
 
 **Which player?** Same as the sleep timer: without fixed players, the blueprint uses the Music Assistant player in the area of the voice device that heard the command.
 
@@ -132,6 +132,7 @@ Music Assistant creates its own device for each player, separate from the Voice 
 | Input        | Default | Description                                                                 |
 | ------------ | ------- | --------------------------------------------------------------------------- |
 | Feste Player | empty   | Music Assistant players to always use. Empty = the player in the device's area |
+| Zurückspulen | 30 s    | Rewind this far before pausing, so the last part is repeated when you continue (0 = off) |
 
 **Speaker groups.** To listen in every room at once, create a group player in Music Assistant and set it as "Feste Player". Starting then plays on the group. Stopping also handles groups: if a playing Music Assistant group contains the target player, the whole group is paused, not just one speaker.
 
@@ -251,6 +252,7 @@ hoerbuch_schlaftimer_abbrechen:
 | Ausblendzeit  | 60 s    | How long the volume fades out before pausing (0 = no fade)       |
 | Hörbuch starten, wenn nichts läuft | off | Start the current book via "Hörbuch vorlesen" if nothing plays |
 | Warteschlange leeren | on | Clear the Music Assistant queue after pausing |
+| Zurückspulen | 30 s | Rewind this far before pausing (after the fade-out, so it is silent; 0 = off) |
 
 **Requirements**
 
