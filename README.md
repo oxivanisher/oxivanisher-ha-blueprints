@@ -316,7 +316,19 @@ audiobook.sh start | stop | toggle
 audiobook.sh sleep          # default length
 audiobook.sh sleep 20       # 20 minutes
 audiobook.sh sleep cancel
+audiobook.sh vol up | down   # one volume step
+audiobook.sh vol 40          # set volume to 40 %
 ```
+
+Volume is a regular Home Assistant action, not a blueprint event, so `vol` needs to know the player: set `HA_VOLUME_PLAYER=media_player.wohnung` (falls back to `HA_PLAYER`). For a Music Assistant group, Music Assistant changes all members relative to each other. The step size of `up`/`down` is set by the player. Without the script, call the action directly:
+
+```bash
+curl -X POST "$HA/api/services/media_player/volume_up" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"entity_id": "media_player.wohnung"}'
+```
+
+Use `volume_down`, or `volume_set` with `"volume_level": 0.4`, the same way.
 
 Optionally set `HA_PLAYER=media_player.wohnung` (comma-separated for several) to override the automations' "Feste Player". The script exits with an error if Home Assistant rejects the request.
 
