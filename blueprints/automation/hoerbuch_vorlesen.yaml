@@ -120,8 +120,8 @@ actions:
              if not ns.yes and e not in players and is_state(e, 'playing') %}
           {% set members = state_attr(e, 'group_members') or [] %}
           {% set queue = state_attr(e, 'active_queue') %}
-          {% if state_attr(e, 'mass_player_type') == 'group' or members | count > 1 %}
-            {% for p in players %}
+          {% if state_attr(e, 'mass_player_type') == 'group' or (members | count > 1 and members[0] == e) %}
+            {% for p in players if state_attr(p, 'mass_player_type') != 'group' %}
               {% if p in members or (queue and state_attr(p, 'active_queue') == queue) %}
                 {% set ns.yes = true %}
               {% endif %}
@@ -166,14 +166,16 @@ actions:
               # wird die ganze Gruppe gestoppt statt nur der einzelne Lautsprecher.
               # Mitglied ist ein Player, wenn er in group_members steht oder dieselbe
               # Music-Assistant-Warteschlange (active_queue) abspielt wie die Gruppe.
+              # Als Gruppe zählt nur eine Music-Assistant-Gruppe oder ein Sync-Leader
+              # (steht selbst an erster Stelle in group_members), nicht die Mitglieder.
               targets: >
                 {% set ns = namespace(groups=[]) %}
                 {% for e in integration_entities('music_assistant') | select('match', 'media_player[.]')
                      if e not in players and is_state(e, 'playing') %}
                   {% set members = state_attr(e, 'group_members') or [] %}
                   {% set queue = state_attr(e, 'active_queue') %}
-                  {% if state_attr(e, 'mass_player_type') == 'group' or members | count > 1 %}
-                    {% for p in players %}
+                  {% if state_attr(e, 'mass_player_type') == 'group' or (members | count > 1 and members[0] == e) %}
+                    {% for p in players if state_attr(p, 'mass_player_type') != 'group' %}
                       {% if p in members or (queue and state_attr(p, 'active_queue') == queue) %}
                         {% set ns.groups = ns.groups + [e] %}
                       {% endif %}

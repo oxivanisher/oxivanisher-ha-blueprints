@@ -306,7 +306,7 @@ actions:
                   {% for e in playing %}
                     {% set m = state_attr(e, 'group_members') or [] %}
                     {% set queue = state_attr(e, 'active_queue') %}
-                    {% if state_attr(e, 'mass_player_type') == 'group' or m | count > 1 %}
+                    {% if state_attr(e, 'mass_player_type') == 'group' or (m | count > 1 and m[0] == e) %}
                       {% set ns.members = ns.members + (m | reject('eq', e) | list) %}
                       {% for p in playing if p != e and queue and state_attr(p, 'active_queue') == queue %}
                         {% set ns.members = ns.members + [p] %}
@@ -339,15 +339,18 @@ actions:
               # auf die ganze Gruppe: alle Räume werden gemeinsam ausgeblendet und gestoppt.
               # Mitglied ist ein Player, wenn er in group_members steht oder dieselbe
               # Music-Assistant-Warteschlange (active_queue) abspielt wie die Gruppe.
+              # Als Gruppe zählt nur eine Music-Assistant-Gruppe oder ein Sync-Leader
+              # (steht selbst an erster Stelle in group_members), nicht die Mitglieder.
               players: >
                 {% set ns = namespace(items=[]) %}
                 {% for p in players_raw %}
                   {% set ns2 = namespace(matches=[]) %}
                   {% for g in integration_entities('music_assistant') | select('match', 'media_player[.]')
-                       if g not in players_raw and is_state(g, 'playing') %}
+                       if g not in players_raw and is_state(g, 'playing')
+                          and state_attr(p, 'mass_player_type') != 'group' %}
                     {% set m = state_attr(g, 'group_members') or [] %}
                     {% set queue = state_attr(g, 'active_queue') %}
-                    {% if (state_attr(g, 'mass_player_type') == 'group' or m | count > 1)
+                    {% if (state_attr(g, 'mass_player_type') == 'group' or (m | count > 1 and m[0] == g))
                           and (p in m or (queue and state_attr(p, 'active_queue') == queue)) %}
                       {% set ns2.matches = ns2.matches + [g] %}
                     {% endif %}
